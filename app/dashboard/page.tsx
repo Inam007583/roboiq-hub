@@ -3,11 +3,12 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
+import type { Profile, Session, SessionInstructor } from '@/lib/types'
 import Link from 'next/link'
 
 export default function Dashboard() {
-  const [profile, setProfile] = useState<any>(null)
-  const [sessions, setSessions] = useState<any[]>([])
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [sessions, setSessions] = useState<Session[]>([])
   const [loading, setLoading] = useState(true)
   const router = useRouter()
   const supabase = createClient()
@@ -32,13 +33,15 @@ export default function Dashboard() {
 
       // Load sessions with venue info
       const { data: sessionsData } = await supabase
-        .from('sessions')
-        .select(`
-          *,
-          venues ( name, brand, requires_photos ),
-          profiles ( full_name )
-        `)
-        .order('date', { ascending: true })
+  .from('sessions')
+  .select(`
+    *,
+    venues ( name, brand, requires_photos ),
+    session_instructors (
+      profiles ( id, full_name )
+    )
+  `)
+  .order('date', { ascending: true })
 
       setSessions(sessionsData || [])
       setLoading(false)
@@ -59,10 +62,6 @@ export default function Dashboard() {
     )
   }
 
-  // Group sessions by brand
-  const robothink = sessions.filter(s => s.venues?.brand === 'robothink')
-  const creativeIq = sessions.filter(s => s.venues?.brand === 'creative_iq')
-
   return (
     <main className="min-h-screen bg-gradient-to-br from-indigo-50 to-purple-50 p-8">
       <div className="max-w-4xl mx-auto">
@@ -70,7 +69,7 @@ export default function Dashboard() {
         <div className="flex justify-between items-center mb-8">
           <div>
             <h1 className="text-3xl font-bold text-indigo-900">
-              🤖🧠 RoboIQ Hub
+              Creative IQ Hub
             </h1>
             <p className="text-gray-500">
               Welcome, <strong>{profile?.full_name}</strong>
@@ -95,29 +94,15 @@ export default function Dashboard() {
           </p>
         </div>
 
-        {/* RoboThink Sessions */}
-        {robothink.length > 0 && (
+        {/* Sessions */}
+        {sessions.length > 0 && (
           <div className="mb-8">
-            <h2 className="text-xl font-bold text-blue-900 mb-3 flex items-center gap-2">
-              🔵 RoboThink Sessions
+            <h2 className="text-xl font-bold text-purple-900 mb-3">
+              Sessions
             </h2>
             <div className="space-y-3">
-              {robothink.map((session) => (
-                <SessionCard key={session.id} session={session} isAdmin={profile?.role === 'admin'} />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Creative IQ Sessions */}
-        {creativeIq.length > 0 && (
-          <div className="mb-8">
-            <h2 className="text-xl font-bold text-purple-900 mb-3 flex items-center gap-2">
-              🟣 Creative IQ Sessions
-            </h2>
-            <div className="space-y-3">
-              {creativeIq.map((session) => (
-                <SessionCard key={session.id} session={session} isAdmin={profile?.role === 'admin'} />
+              {sessions.map((session) => (
+                <SessionCard key={session.id} session={session} />
               ))}
             </div>
           </div>
@@ -128,16 +113,12 @@ export default function Dashboard() {
             No sessions yet.
           </div>
         )}
-
-        <p className="text-center text-sm text-gray-400 mt-8">
-          Day 4 ✅ — Sessions displaying
-        </p>
       </div>
     </main>
   )
 }
 
-function SessionCard({ session, isAdmin }: { session: any; isAdmin: boolean }) {
+function SessionCard({ session }: { session: Session }) {
   return (
     <Link
       href={`/sessions/${session.id}`}
@@ -147,13 +128,13 @@ function SessionCard({ session, isAdmin }: { session: any; isAdmin: boolean }) {
         <div>
           <h3 className="text-lg font-semibold text-gray-900">{session.title}</h3>
           <p className="text-sm text-gray-500 mt-1">
-            📍 {session.venues?.name}
-            {isAdmin && session.profiles?.full_name && (
-              <span> · 👤 {session.profiles.full_name}</span>
-            )}
+            {session.venues?.name}
+            {session.session_instructors && session.session_instructors.length > 0 && (
+  <span> · {session.session_instructors.map((si: SessionInstructor) => si.profiles?.full_name).filter(Boolean).join(', ')}</span>
+)}
           </p>
           {session.venues?.requires_photos && (
-            <p className="text-xs text-purple-700 mt-1">📸 Photos required</p>
+            <p className="text-xs text-purple-700 mt-1">Photos required</p>
           )}
         </div>
         <div className="text-right">
