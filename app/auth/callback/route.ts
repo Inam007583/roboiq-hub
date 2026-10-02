@@ -16,11 +16,27 @@ export async function GET(request: Request) {
 
   if (code) {
     const supabase = await createServerSupabase()
-    const { error } = await supabase.auth.exchangeCodeForSession(code)
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code)
     if (error) {
       return NextResponse.redirect(
         `${origin}/login?error=${encodeURIComponent(error.message)}`
       )
+    }
+
+    // Access gate: only approved (active) accounts may sign in
+    const userId = data.user?.id
+    if (userId) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('active')
+        .eq('id', userId)
+        .single()
+      if (!profile || !profile.active) {
+        await supabase.auth.signOut()
+        return NextResponse.redirect(
+          `${origin}/login?error=${encodeURIComponent('Your account is pending approval. Please contact your admin.')}`
+        )
+      }
     }
   }
 

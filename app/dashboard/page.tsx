@@ -29,6 +29,13 @@ export default function Dashboard() {
         .eq('id', user.id)
         .single()
 
+      // Access gate: only approved (active) accounts may use the app
+      if (!profileData || !profileData.active) {
+        await supabase.auth.signOut()
+        router.push('/login?error=' + encodeURIComponent('Your account is pending approval. Please contact your admin.'))
+        return
+      }
+
       setProfile(profileData)
 
       // Load sessions with venue info
@@ -78,12 +85,19 @@ export default function Dashboard() {
               </span>
             </p>
           </div>
-          <button
-            onClick={handleLogout}
-            className="text-sm text-gray-600 hover:text-gray-900"
-          >
-            Sign out
-          </button>
+          <div className="flex items-center gap-4">
+            {profile?.role === 'admin' && (
+              <Link href="/admin" className="text-sm font-medium text-indigo-600 hover:text-indigo-800">
+                Admin
+              </Link>
+            )}
+            <button
+              onClick={handleLogout}
+              className="text-sm text-gray-600 hover:text-gray-900"
+            >
+              Sign out
+            </button>
+          </div>
         </div>
 
         {/* Sessions count */}

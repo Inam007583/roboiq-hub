@@ -29,7 +29,19 @@ export default function SessionDetail() {
         router.push('/login')
         return
       }
-      
+
+      // Access gate: only approved (active) accounts may use the app
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('active')
+        .eq('id', user.id)
+        .single()
+      if (!profileData || !profileData.active) {
+        await supabase.auth.signOut()
+        router.push('/login?error=' + encodeURIComponent('Your account is pending approval. Please contact your admin.'))
+        return
+      }
+
 
       const { data: sessionData } = await supabase
         .from('sessions')
@@ -152,6 +164,7 @@ async function handleDeletePhoto(photoUrl: string) {
         learn_more_about: student.learn_more_about,
         what_learned_today: student.what_learned_today,
         instructor_remarks: student.instructor_remarks,
+        drive_link: student.drive_link,
       })
       .eq('id', student.id)
 
@@ -423,9 +436,9 @@ function StudentFeedbackCard({
           <div className="bg-white rounded-lg p-4 border border-gray-100">
             <p className="text-sm font-bold text-gray-900 mb-3">2. Time Management</p>
             <div className="grid grid-cols-3 gap-3">
-              <SubScore label="Intro & Pre-built" value={student.time_intro_score} onChange={(v: number | null) => onChange('time_intro_score', v)} disabled={isSent} />
-              <SubScore label="Build Time" value={student.time_build_score} onChange={(v: number | null) => onChange('time_build_score', v)} disabled={isSent} />
-              <SubScore label="Playtime & Activity" value={student.time_play_score} onChange={(v: number | null) => onChange('time_play_score', v)} disabled={isSent} />
+              <Field label="Intro & Pre-built" value={student.time_intro_score} onChange={(v: string) => onChange('time_intro_score', v)} disabled={isSent} placeholder="What they did" />
+              <Field label="Build Time" value={student.time_build_score} onChange={(v: string) => onChange('time_build_score', v)} disabled={isSent} placeholder="e.g. 45 mins" />
+              <Field label="Playtime & Activity" value={student.time_play_score} onChange={(v: string) => onChange('time_play_score', v)} disabled={isSent} placeholder="What they did" />
             </div>
           </div>
 
@@ -443,6 +456,20 @@ function StudentFeedbackCard({
             <TextField label="Let's Learn More About" value={student.learn_more_about} onChange={(v: string) => onChange('learn_more_about', v)} disabled={isSent} placeholder="What to focus on next time..." />
             <TextField label="What Did I Learn Today?" value={student.what_learned_today} onChange={(v: string) => onChange('what_learned_today', v)} disabled={isSent} placeholder="Key takeaway from the session..." />
             <TextField label="Instructor Remarks" value={student.instructor_remarks} onChange={(v: string) => onChange('instructor_remarks', v)} disabled={isSent} placeholder="Personal note for the parent..." />
+          </div>
+
+          {/* Per-student Drive link (photos) */}
+          <div className="bg-white rounded-lg p-4 border border-gray-100">
+            <Field
+              label="Photos — Drive Link (this student)"
+              value={student.drive_link}
+              onChange={(v: string) => onChange('drive_link', v)}
+              disabled={isSent}
+              placeholder="https://drive.google.com/drive/folders/..."
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Set the folder to &ldquo;Anyone with the link&rdquo; — it&apos;s included in the parent&apos;s email.
+            </p>
           </div>
 
           {/* Per-student submit */}

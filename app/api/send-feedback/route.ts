@@ -4,26 +4,9 @@ import { createServerSupabase } from '@/lib/supabase-server'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-function scoreLine(label: string, value: number | null) {
-  if (value == null) return ''
-  return `<tr>
-    <td style="padding:6px 12px;color:#555;">${label}</td>
-    <td style="padding:6px 12px;font-weight:600;">${value} / 5</td>
-  </tr>`
-}
-
-function textRow(label: string, value: string | null) {
-  if (!value || !value.trim()) return ''
-  return `<div style="margin:10px 0;">
-    <p style="margin:0;font-size:13px;color:#6b7280;font-weight:600;">${label}</p>
-    <p style="margin:2px 0 0;font-size:15px;color:#111827;">${value}</p>
-  </div>`
-}
-
 export async function POST(request: Request) {
   const supabase = await createServerSupabase()
 
-  // 1. Must be a logged-in instructor
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
@@ -40,7 +23,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Missing studentId' }, { status: 400 })
   }
 
-  // 2. Load the student + its session/venue
   const { data: student, error: fetchError } = await supabase
     .from('students')
     .select(`*, sessions ( title, date, instructor_id, venues ( name ) )`)
@@ -51,10 +33,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Student not found' }, { status: 404 })
   }
 
-  // 3. Only the assigned instructor (or an admin) may send
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role')
+    .select('role, full_name')
     .eq('id', user.id)
     .single()
 
@@ -64,7 +45,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Not authorized for this session' }, { status: 403 })
   }
 
-  // 4. Validate the parent email (wrong address = privacy issue)
   const parentEmail = (student.parent_email || '').trim()
   if (!EMAIL_RE.test(parentEmail)) {
     return NextResponse.json(
@@ -81,55 +61,107 @@ export async function POST(request: Request) {
     )
   }
 
-  // 5. Format the feedback sheet
-  const venueName = student.sessions?.venues?.name || ''
-  const sessionTitle = student.sessions?.title || 'Session'
-  const sessionDate = student.sessions?.date || ''
+  const childName = student.full_name || 'your child'
+  const sessionTitle = student.sessions?.title || "today's session"
+  const instructorName = profile?.full_name || ''
+  const formUrl = process.env.PARENT_FEEDBACK_FORM_URL
 
-  const scores = [
-    scoreLine('Understanding of Instructions', student.understanding_score),
-    scoreLine('Time — Intro &amp; Pre-built', student.time_intro_score),
-    scoreLine('Time — Build', student.time_build_score),
-    scoreLine('Time — Playtime &amp; Activity', student.time_play_score),
-    scoreLine('Troubleshooting &amp; Debugging', student.troubleshooting_score),
-    scoreLine('Design &amp; Creativity', student.design_score),
+  // Render the feedback inline in the email body
+  const esc = (s: unknown) =>
+    String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+  const row = (label: string, value: unknown) =>
+    value == null || value === ''
+      ? ''
+      : `<tr>
+          <td style="padding:7px 14px 7px 0;font-size:13px;color:#6b7280;vertical-align:top;white-space:nowrap;">${esc(label)}</td>
+          <td style="padding:7px 0;font-size:14px;color:#111827;line-height:1.5;">${esc(value)}</td>
+        </tr>`
+
+  const section = (heading: string, rows: string) =>
+    !rows
+      ? ''
+      : `<p style="margin:22px 0 4px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#4f46e5;">${esc(heading)}</p>
+         <table style="width:100%;border-collapse:collapse;">${rows}</table>`
+
+  const lessonRows = [
+    row('Level', student.level),
+    row('Date', student.sessions?.date),
+    row('Day', student.day_number),
+    student.is_repeat ? row('Repeat session', 'Yes') : '',
+    row('Lesson focus', student.lesson_focus),
   ].join('')
 
-  const texts = [
-    textRow("Let's Learn More About", student.learn_more_about),
-    textRow('What Did I Learn Today?', student.what_learned_today),
-    textRow('Instructor Remarks', student.instructor_remarks),
+  const scoreRows = [
+    row('Understanding', student.understanding_score != null ? `${student.understanding_score} / 5` : ''),
+    row('Troubleshooting', student.troubleshooting_score),
+    row('Design', student.design_score),
+  ].join('')
+
+  const timeRows = [
+    row('Intro', student.time_intro_score),
+    row('Build', student.time_build_score),
+    row('Play', student.time_play_score),
+  ].join('')
+
+  const notesRows = [
+    row('Wants to learn more about', student.learn_more_about),
+    row('What I learned today', student.what_learned_today),
+    row('Instructor remarks', student.instructor_remarks),
+  ].join('')
+
+  const feedbackHtml = [
+    section('Lesson', lessonRows),
+    section('Scores', scoreRows),
+    section('Time management', timeRows),
+    section('Notes', notesRows),
+  ].join('')
+
+  const button = (href: string, label: string, bg: string) =>
+    `<a href="${href}" style="display:inline-block;background:${bg};color:#fff;text-decoration:none;font-weight:700;font-size:15px;padding:12px 22px;border-radius:10px;margin:6px 8px 6px 0;">${label}</a>`
+
+  const links = [
+    student.drive_link ? button(student.drive_link, 'View session photos', '#4f46e5') : '',
+    formUrl ? button(formUrl, 'Share your feedback', '#f59e0b') : '',
   ].join('')
 
   const html = `
-  <div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:600px;margin:0 auto;color:#111827;">
-    <div style="background:#4f46e5;color:#fff;padding:20px 24px;border-radius:12px 12px 0 0;">
-      <h1 style="margin:0;font-size:20px;">Creative IQ Hub</h1>
-      <p style="margin:4px 0 0;opacity:.9;font-size:14px;">Session Feedback</p>
-    </div>
-    <div style="border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px;padding:24px;">
-      <h2 style="margin:0 0 4px;font-size:18px;">${student.full_name || 'Student'}</h2>
-      <p style="margin:0;color:#6b7280;font-size:14px;">
-        ${sessionTitle}${venueName ? ' · ' + venueName : ''}${sessionDate ? ' · ' + sessionDate : ''}
-      </p>
-      ${student.lesson_focus ? `<p style="margin:8px 0 0;font-size:14px;">Lesson focus: <strong>${student.lesson_focus}</strong></p>` : ''}
+  <div style="background:#efeafc;padding:24px 0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+    <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;">
+      <div style="background:#4f46e5;padding:22px 28px;">
+        <p style="margin:0;color:#fff;font-size:22px;font-weight:800;letter-spacing:.02em;">creative <span style="color:#f59e0b;">IQ</span></p>
+        <p style="margin:4px 0 0;color:#e0e7ff;font-size:13px;">Session Feedback</p>
+      </div>
 
-      ${scores ? `<table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">${scores}</table>` : ''}
-      ${texts}
+      <div style="padding:28px;">
+        <p style="margin:0 0 14px;font-size:15px;color:#111827;line-height:1.6;">
+          Hi,<br><br>
+          Thank you for attending our session today! Here is <strong>${esc(childName)}</strong>'s
+          feedback from <strong>${esc(sessionTitle)}</strong>.
+        </p>
 
-      <p style="margin:24px 0 0;font-size:12px;color:#9ca3af;">
-        Sent via Creative IQ Hub. Please reply to this email if anything looks incorrect.
-      </p>
+        ${feedbackHtml}
+
+        ${links ? `<div style="margin:22px 0 4px;">${links}</div>` : ''}
+        ${instructorName ? `<p style="margin:20px 0 0;font-size:14px;color:#374151;">Warm regards,<br><strong>${instructorName}</strong></p>` : ''}
+      </div>
+
+      <div style="background:#f9fafb;padding:18px 28px;border-top:1px solid #eee;">
+        <p style="margin:0;font-size:13px;color:#6b7280;line-height:1.6;">
+          For any queries, email us at
+          <a href="mailto:info@creative-iq.co.uk" style="color:#4f46e5;">info@creative-iq.co.uk</a>
+          or call <strong>07361 594569</strong>.
+        </p>
+      </div>
     </div>
   </div>`
 
-  // 6. Send
   const resend = new Resend(apiKey)
   const from = process.env.FEEDBACK_FROM_EMAIL || 'onboarding@resend.dev'
   const { error: sendError } = await resend.emails.send({
-    from: `Creative IQ Hub <${from}>`,
+    from: `creative IQ <${from}>`,
     to: parentEmail,
-    subject: `Feedback for ${student.full_name || 'your child'} — ${sessionTitle}`,
+    subject: `${childName}'s feedback — ${sessionTitle}`,
     html,
   })
 
@@ -137,7 +169,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: sendError.message }, { status: 502 })
   }
 
-  // 7. Stamp as sent
   const sentAt = new Date().toISOString()
   await supabase
     .from('students')
