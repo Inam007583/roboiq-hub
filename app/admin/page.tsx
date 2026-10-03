@@ -5,12 +5,14 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import type { Profile, VenueRow, Session } from '@/lib/types'
 import Link from 'next/link'
+import ImportStudents from './ImportStudents'
 
 export default function AdminPage() {
   const supabase = createClient()
   const router = useRouter()
 
   const [loading, setLoading] = useState(true)
+  const [meId, setMeId] = useState<string | null>(null)
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [venues, setVenues] = useState<VenueRow[]>([])
   const [sessions, setSessions] = useState<Session[]>([])
@@ -63,6 +65,7 @@ export default function AdminPage() {
         return
       }
 
+      setMeId(user.id)
       await loadAll()
       setLoading(false)
     }
@@ -178,15 +181,19 @@ export default function AdminPage() {
                   <p className="font-medium text-gray-900">{p.full_name || '(no name)'}</p>
                   <p className="text-xs text-gray-500">{p.email} · {p.role}</p>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setRole(p.id, p.role === 'admin' ? 'instructor' : 'admin')}
-                    className="text-sm border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-50"
-                  >
-                    {p.role === 'admin' ? 'Make instructor' : 'Make admin'}
-                  </button>
-                  <button onClick={() => setActive(p.id, false)} className="text-sm border border-red-300 text-red-700 px-3 py-1.5 rounded-lg hover:bg-red-50">Revoke</button>
-                </div>
+                {p.id === meId ? (
+                  <span className="text-xs text-gray-400 font-medium">You</span>
+                ) : (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setRole(p.id, p.role === 'admin' ? 'instructor' : 'admin')}
+                      className="text-sm border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-50"
+                    >
+                      {p.role === 'admin' ? 'Make instructor' : 'Make admin'}
+                    </button>
+                    <button onClick={() => setActive(p.id, false)} className="text-sm border border-red-300 text-red-700 px-3 py-1.5 rounded-lg hover:bg-red-50">Revoke</button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -283,6 +290,11 @@ export default function AdminPage() {
             {sessions.length === 0 && <p className="text-sm text-gray-400">No sessions scheduled.</p>}
           </div>
         </section>
+
+        {/* ===== Import students ===== */}
+        <div className="mt-6">
+          <ImportStudents sessions={sessions} onImported={loadAll} />
+        </div>
       </div>
     </main>
   )
