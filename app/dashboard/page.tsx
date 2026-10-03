@@ -29,26 +29,33 @@ export default function Dashboard() {
         .eq('id', user.id)
         .single()
 
-      // Access gate: only approved (active) accounts may use the app
-      if (!profileData || !profileData.active) {
+      // Blocked (removed) accounts can't use the app
+      if (profileData && profileData.active === false) {
         await supabase.auth.signOut()
-        router.push('/login?error=' + encodeURIComponent('Your account is pending approval. Please contact your admin.'))
+        router.push('/login?error=' + encodeURIComponent('Your access has been removed. Please contact your admin.'))
         return
       }
 
       setProfile(profileData)
 
-      // Load sessions with venue info
-      const { data: sessionsData } = await supabase
-  .from('sessions')
-  .select(`
-    *,
-    venues ( name, brand, requires_photos ),
-    session_instructors (
-      profiles ( id, full_name )
-    )
-  `)
-  .order('date', { ascending: true })
+      // Instructors see only the sessions assigned to them (their rota);
+      // admins see every session.
+      let query = supabase
+        .from('sessions')
+        .select(`
+          *,
+          venues ( name, brand, requires_photos ),
+          session_instructors (
+            profiles ( id, full_name )
+          )
+        `)
+        .order('date', { ascending: true })
+
+      if (profileData?.role !== 'admin') {
+        query = query.eq('instructor_id', user.id)
+      }
+
+      const { data: sessionsData } = await query
 
       setSessions(sessionsData || [])
       setLoading(false)

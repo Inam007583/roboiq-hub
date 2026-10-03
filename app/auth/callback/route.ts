@@ -23,7 +23,7 @@ export async function GET(request: Request) {
       )
     }
 
-    // Access gate: only approved (active) accounts may sign in
+    // Blocked (removed) accounts can't sign in
     const userId = data.user?.id
     if (userId) {
       const { data: profile } = await supabase
@@ -31,10 +31,10 @@ export async function GET(request: Request) {
         .select('active')
         .eq('id', userId)
         .single()
-      if (!profile || !profile.active) {
+      if (profile && profile.active === false) {
         await supabase.auth.signOut()
         return NextResponse.redirect(
-          `${origin}/login?error=${encodeURIComponent('Your account is pending approval. Please contact your admin.')}`
+          `${origin}/login?error=${encodeURIComponent('Your access has been removed. Please contact your admin.')}`
         )
       }
     }

@@ -30,18 +30,13 @@ export default function SessionDetail() {
         return
       }
 
-      // Access gate: only approved (active) accounts may use the app
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('active')
-        .eq('id', user.id)
-        .single()
-      if (!profileData || !profileData.active) {
+      // Blocked (removed) accounts can't use the app
+      const { data: me } = await supabase.from('profiles').select('active').eq('id', user.id).single()
+      if (me && me.active === false) {
         await supabase.auth.signOut()
-        router.push('/login?error=' + encodeURIComponent('Your account is pending approval. Please contact your admin.'))
+        router.push('/login?error=' + encodeURIComponent('Your access has been removed. Please contact your admin.'))
         return
       }
-
 
       const { data: sessionData } = await supabase
         .from('sessions')

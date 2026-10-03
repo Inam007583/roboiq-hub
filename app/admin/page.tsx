@@ -17,6 +17,12 @@ export default function AdminPage() {
   const [venues, setVenues] = useState<VenueRow[]>([])
   const [sessions, setSessions] = useState<Session[]>([])
 
+  // Add-instructor form
+  const [iEmail, setIEmail] = useState('')
+  const [iName, setIName] = useState('')
+  const [iRole, setIRole] = useState('instructor')
+  const [savingInvite, setSavingInvite] = useState(false)
+
   // Venue form
   const [vName, setVName] = useState('')
   const [vAddress, setVAddress] = useState('')
@@ -42,6 +48,27 @@ export default function AdminPage() {
     setSessions(sess || [])
   }
 
+  // Add an instructor by email (grants access). If they've already signed in,
+  // just re-activate their existing account; otherwise add them to the allowlist.
+  async function addInstructor() {
+    const email = iEmail.trim().toLowerCase()
+    if (!email) { alert('Enter the instructor\'s email.'); return }
+    setSavingInvite(true)
+    const existing = profiles.find(p => (p.email || '').toLowerCase() === email)
+    if (existing) {
+      await supabase.from('profiles').update({ active: true, role: iRole }).eq('id', existing.id)
+    } else {
+      const { error } = await supabase
+        .from('instructor_invites')
+        .upsert({ email, full_name: iName.trim() || null, role: iRole }, { onConflict: 'email' })
+      if (error) { setSavingInvite(false); alert(`Could not add instructor: ${error.message}`); return }
+    }
+    setSavingInvite(false)
+    setIEmail(''); setIName(''); setIRole('instructor')
+    alert(existing ? 'Access restored for this instructor.' : 'Instructor added — they can sign in with Google now.')
+    await loadAll()
+  }
+
   useEffect(() => {
     async function init() {
       const { data: { user } } = await supabase.auth.getUser()
@@ -51,16 +78,11 @@ export default function AdminPage() {
       }
       const { data: me } = await supabase
         .from('profiles')
-        .select('role, active')
+        .select('role')
         .eq('id', user.id)
         .single()
 
-      if (!me || !me.active) {
-        await supabase.auth.signOut()
-        router.push('/login?error=' + encodeURIComponent('Your account is pending approval. Please contact your admin.'))
-        return
-      }
-      if (me.role !== 'admin') {
+      if (!me || me.role !== 'admin') {
         router.push('/dashboard')
         return
       }
@@ -110,16 +132,42 @@ export default function AdminPage() {
       return
     }
     setSavingSession(true)
-    const { error } = await supabase.from('sessions').insert({
+    const { data: created, error } = await supabase.from('sessions').insert({
       title: sTitle.trim(),
       date: sDate,
       time: sTime || null,
       venue_id: sVenue,
       instructor_id: sInstructor,
       status: 'upcoming',
-    })
+    }).select('id').single()
+
+    if (error || !created) {
+      setSavingSession(false)
+      alert(`Could not add session: ${error?.message}`)
+      return
+    }
+
+    // Auto-fill this session with the venue's roster students
+    const { data: roster } = await supabase
+      .from('rosters')
+      .select('full_name, parent_email, level')
+      .eq('venue_id', sVenue)
+      .eq('active', true)
+
+    if (roster && roster.length > 0) {
+      await supabase.from('students').insert(
+        roster.map(r => ({
+          session_id: created.id,
+          full_name: r.full_name,
+          parent_email: r.parent_email,
+          level: r.level,
+        }))
+      )
+    }
+
     setSavingSession(false)
-    if (error) { alert(`Could not add session: ${error.message}`); return }
+    const n = roster?.length ?? 0
+    alert(n > 0 ? `Session added with ${n} students from the roster.` : 'Session added (no roster set for this venue yet).')
     setSTitle(''); setSDate(''); setSTime(''); setSVenue(''); setSInstructor('')
     await loadAll()
   }
@@ -137,8 +185,6 @@ export default function AdminPage() {
     )
   }
 
-  const pending = profiles.filter(p => !p.active)
-  const approved = profiles.filter(p => p.active)
   const instructorName = (id?: string | null) =>
     profiles.find(p => p.id === id)?.full_name || profiles.find(p => p.id === id)?.email || '—'
 
@@ -154,48 +200,65 @@ export default function AdminPage() {
         <section className="bg-white rounded-xl shadow-sm p-6 mb-6">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Instructors</h2>
 
-          {pending.length > 0 && (
-            <>
-              <p className="text-sm font-semibold text-amber-700 mb-2">Pending approval ({pending.length})</p>
-              <div className="space-y-2 mb-5">
-                {pending.map(p => (
-                  <div key={p.id} className="flex items-center justify-between p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                    <div>
-                      <p className="font-medium text-gray-900">{p.full_name || '(no name)'}</p>
-                      <p className="text-xs text-gray-500">{p.email}</p>
-                    </div>
-                    <div className="flex gap-2">
-                      <button onClick={() => setActive(p.id, true)} className="text-sm bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700">Approve</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
+          <p className="text-sm text-gray-500 mb-3">
+            Add an instructor by email below. They can then sign in with Google and they&apos;re in — no Google Console needed.
+          </p>
 
-          <p className="text-sm font-semibold text-gray-700 mb-2">Approved ({approved.length})</p>
+          {/* Add instructor by email */}
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto_auto] gap-3 items-end mb-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Email</label>
+              <input value={iEmail} onChange={e => setIEmail(e.target.value)} placeholder="instructor@gmail.com" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Name (optional)</label>
+              <input value={iName} onChange={e => setIName(e.target.value)} placeholder="Full name" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Role</label>
+              <select value={iRole} onChange={e => setIRole(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white">
+                <option value="instructor">Instructor</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <button onClick={addInstructor} disabled={savingInvite} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
+              {savingInvite ? 'Adding...' : 'Add instructor'}
+            </button>
+          </div>
+
           <div className="space-y-2">
-            {approved.map(p => (
-              <div key={p.id} className="flex items-center justify-between p-3 border border-gray-100 rounded-lg">
-                <div>
-                  <p className="font-medium text-gray-900">{p.full_name || '(no name)'}</p>
-                  <p className="text-xs text-gray-500">{p.email} · {p.role}</p>
-                </div>
-                {p.id === meId ? (
-                  <span className="text-xs text-gray-400 font-medium">You</span>
-                ) : (
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setRole(p.id, p.role === 'admin' ? 'instructor' : 'admin')}
-                      className="text-sm border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-50"
-                    >
-                      {p.role === 'admin' ? 'Make instructor' : 'Make admin'}
-                    </button>
-                    <button onClick={() => setActive(p.id, false)} className="text-sm border border-red-300 text-red-700 px-3 py-1.5 rounded-lg hover:bg-red-50">Revoke</button>
+            {profiles.map(p => {
+              const removed = p.active === false
+              return (
+                <div key={p.id} className={`flex items-center justify-between p-3 border rounded-lg ${removed ? 'border-gray-200 bg-gray-50' : 'border-gray-100'}`}>
+                  <div>
+                    <p className={`font-medium ${removed ? 'text-gray-400 line-through' : 'text-gray-900'}`}>{p.full_name || '(no name)'}</p>
+                    <p className="text-xs text-gray-500">{p.email} · {p.role}{removed ? ' · removed' : ''}</p>
                   </div>
-                )}
-              </div>
-            ))}
+                  {p.id === meId ? (
+                    <span className="text-xs text-gray-400 font-medium">You</span>
+                  ) : removed ? (
+                    <button onClick={() => setActive(p.id, true)} className="text-sm bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700">Restore</button>
+                  ) : (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setRole(p.id, p.role === 'admin' ? 'instructor' : 'admin')}
+                        className="text-sm border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-50"
+                      >
+                        {p.role === 'admin' ? 'Make instructor' : 'Make admin'}
+                      </button>
+                      <button
+                        onClick={() => { if (confirm(`Remove ${p.full_name || p.email}'s access?`)) setActive(p.id, false) }}
+                        className="text-sm border border-red-300 text-red-700 px-3 py-1.5 rounded-lg hover:bg-red-50"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+            {profiles.length === 0 && <p className="text-sm text-gray-400">No instructors yet.</p>}
           </div>
         </section>
 
@@ -246,7 +309,7 @@ export default function AdminPage() {
               <label className="block text-xs font-semibold text-gray-700 mb-1">Instructor</label>
               <select value={sInstructor} onChange={e => setSInstructor(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white">
                 <option value="">— Select instructor —</option>
-                {approved.map(p => <option key={p.id} value={p.id}>{p.full_name || p.email}</option>)}
+                {profiles.map(p => <option key={p.id} value={p.id}>{p.full_name || p.email}</option>)}
               </select>
             </div>
             <div>
@@ -291,9 +354,9 @@ export default function AdminPage() {
           </div>
         </section>
 
-        {/* ===== Import students ===== */}
+        {/* ===== Class rosters ===== */}
         <div className="mt-6">
-          <ImportStudents sessions={sessions} onImported={loadAll} />
+          <ImportStudents venues={venues} onChanged={loadAll} />
         </div>
       </div>
     </main>

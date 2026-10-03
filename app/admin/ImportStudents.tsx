@@ -3,42 +3,58 @@
 import { useState } from 'react'
 import * as XLSX from 'xlsx'
 import { createClient } from '@/lib/supabase'
-import type { Session } from '@/lib/types'
+import type { VenueRow } from '@/lib/types'
 
 type Row = Record<string, string>
-type FieldKey = 'name' | 'email' | 'level' | 'day'
+type FieldKey = 'name' | 'email' | 'level'
+interface RosterStudent { id: string; full_name: string | null; parent_email: string | null; level: string | null }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const isValidEmail = (v: string) => EMAIL_RE.test((v || '').trim())
 
 export default function ImportStudents({
-  sessions,
-  onImported,
+  venues,
+  onChanged,
 }: {
-  sessions: Session[]
-  onImported: () => void
+  venues: VenueRow[]
+  onChanged: () => void
 }) {
   const supabase = createClient()
-  const [sessionId, setSessionId] = useState('')
+  const [venueId, setVenueId] = useState('')
+  const [roster, setRoster] = useState<RosterStudent[]>([])
   const [rows, setRows] = useState<Row[]>([])
   const [headers, setHeaders] = useState<string[]>([])
-  const [map, setMap] = useState<Record<FieldKey, string>>({ name: '', email: '', level: '', day: '' })
+  const [map, setMap] = useState<Record<FieldKey, string>>({ name: '', email: '', level: '' })
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState('')
+
+  async function loadRoster(vid: string) {
+    if (!vid) { setRoster([]); return }
+    const { data } = await supabase
+      .from('rosters')
+      .select('id, full_name, parent_email, level')
+      .eq('venue_id', vid)
+      .order('full_name')
+    setRoster(data || [])
+  }
+
+  function onVenue(vid: string) {
+    setVenueId(vid)
+    setResult('')
+    loadRoster(vid)
+  }
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     setResult('')
 
-    // Reads .xlsx, .xls and .csv
     const buf = await file.arrayBuffer()
     const wb = XLSX.read(buf)
     const ws = wb.Sheets[wb.SheetNames[0]]
     const matrix = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '', raw: false })
 
-    // Some Pebble exports put a title/banner row (and date) above the real header
-    // row. Find the row that actually contains column names like child / email.
+    // Skip any title/banner rows above the real header row
     const KNOWN = ['child', 'email', 'dob', 'customer', 'ticket', 'mobile', 'medical', 'notes', 'photo', 'attendance', 'pupil', 'student']
     let hr = matrix.findIndex(row =>
       Array.isArray(row) && (row as unknown[]).some(c => KNOWN.includes(String(c).toLowerCase().trim()))
@@ -60,8 +76,6 @@ export default function ImportStudents({
     setRows(data)
     setHeaders(hdrs)
 
-    // Prefer an exact header match before a partial one, so "email" wins over
-    // "Partner's name and email".
     const find = (...keys: string[]) => {
       for (const k of keys) {
         const exact = hdrs.find(h => h.toLowerCase().trim() === k)
@@ -77,43 +91,49 @@ export default function ImportStudents({
       name: find('child', 'pupil', 'student', 'name'),
       email: find('email', 'e-mail', 'parent email', 'guardian email'),
       level: find('level', 'year', 'group', 'class'),
-      day: find('day'),
     })
   }
 
   async function doImport() {
-    if (!sessionId) { alert('Choose the session to import these students into.'); return }
+    if (!venueId) { alert('Choose a venue first.'); return }
     if (!map.name || !map.email) { alert('Map at least Student name and Parent email.'); return }
 
     const payload = rows
       .map(r => {
         const email = (r[map.email] || '').trim()
         return {
-          session_id: sessionId,
+          venue_id: venueId,
           full_name: (r[map.name] || '').trim() || null,
-          // Only store a valid email — a bad/"N/A" one would silently fail at send time
           parent_email: isValidEmail(email) ? email : null,
           level: map.level ? (r[map.level] || '').trim() || null : null,
-          day_number: map.day ? (r[map.day] || '').trim() || null : null,
+          active: true,
         }
       })
       .filter(s => s.full_name)
 
     if (payload.length === 0) { alert('No rows with a student name were found.'); return }
+    if (!confirm(`This replaces the current roster for this venue with ${payload.length} students. Continue?`)) return
 
     const missing = payload.filter(s => !s.parent_email).length
-
     setImporting(true)
-    const { data, error } = await supabase.from('students').insert(payload).select('id')
+    await supabase.from('rosters').delete().eq('venue_id', venueId)
+    const { data, error } = await supabase.from('rosters').insert(payload).select('id')
     setImporting(false)
 
     if (error) { setResult(`Error: ${error.message}`); return }
     setResult(
-      `Imported ${data?.length ?? 0} students.` +
+      `Roster set: ${data?.length ?? 0} students.` +
       (missing > 0 ? ` ⚠ ${missing} have no valid parent email — add it before sending feedback.` : '')
     )
-    setRows([]); setHeaders([]); setMap({ name: '', email: '', level: '', day: '' })
-    onImported()
+    setRows([]); setHeaders([]); setMap({ name: '', email: '', level: '' })
+    await loadRoster(venueId)
+    onChanged()
+  }
+
+  async function removeStudent(id: string) {
+    await supabase.from('rosters').delete().eq('id', id)
+    await loadRoster(venueId)
+    onChanged()
   }
 
   const field = (key: FieldKey, label: string) => (
@@ -132,99 +152,113 @@ export default function ImportStudents({
 
   return (
     <section className="bg-white rounded-xl shadow-sm p-6 mb-6">
-      <h2 className="text-xl font-semibold text-gray-900 mb-1">Import students (from Pebble)</h2>
+      <h2 className="text-xl font-semibold text-gray-900 mb-1">Class rosters</h2>
       <p className="text-sm text-gray-500 mb-4">
-        Export a class list from Pebble as Excel (.xlsx), pick the matching session, then upload.
+        Import each class once from Pebble (Excel). Every new session you add for that venue is auto-filled with these students — you only update when a child joins or leaves.
       </p>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-        <div>
-          <label className="block text-xs font-semibold text-gray-700 mb-1">Import into session</label>
-          <select
-            value={sessionId}
-            onChange={e => setSessionId(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
-          >
-            <option value="">— Select session —</option>
-            {sessions.map(s => (
-              <option key={s.id} value={s.id}>
-                {s.title} · {s.date} · {s.venues?.name || '—'}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="block text-xs font-semibold text-gray-700 mb-1">Excel file (.xlsx)</label>
+      <div className="mb-4 max-w-sm">
+        <label className="block text-xs font-semibold text-gray-700 mb-1">Venue</label>
+        <select
+          value={venueId}
+          onChange={e => onVenue(e.target.value)}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
+        >
+          <option value="">— Select venue —</option>
+          {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+        </select>
+      </div>
+
+      {venueId && (
+        <>
+          {/* Current roster */}
+          <p className="text-sm font-semibold text-gray-700 mb-2">Current roster ({roster.length})</p>
+          {roster.length === 0 ? (
+            <p className="text-sm text-gray-400 mb-4">No students yet — upload a Pebble file below.</p>
+          ) : (
+            <div className="overflow-y-auto max-h-56 border border-gray-100 rounded-lg mb-4">
+              <table className="text-sm w-full">
+                <tbody>
+                  {roster.map(r => (
+                    <tr key={r.id} className="border-t border-gray-100 first:border-t-0">
+                      <td className="px-3 py-1.5 text-gray-900">{r.full_name}</td>
+                      <td className={`px-3 py-1.5 ${r.parent_email ? 'text-gray-600' : 'text-amber-700'}`}>{r.parent_email || '(no email)'}</td>
+                      <td className="px-3 py-1.5 text-right">
+                        <button onClick={() => removeStudent(r.id)} className="text-xs text-red-700 hover:underline">Remove</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Upload to replace roster */}
+          <label className="block text-xs font-semibold text-gray-700 mb-1">Upload Pebble file (.xlsx) to set / replace this roster</label>
           <input
             type="file"
             accept=".xlsx,.xls"
             onChange={handleFile}
-            className="w-full text-sm text-gray-700 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:text-white file:text-sm file:font-medium hover:file:bg-indigo-700"
+            className="w-full text-sm text-gray-700 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:text-white file:text-sm file:font-medium hover:file:bg-indigo-700 mb-4"
           />
-        </div>
-      </div>
 
-      {headers.length > 0 && (
-        <>
-          <p className="text-sm font-semibold text-gray-700 mb-2">Match columns ({rows.length} rows found)</p>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-            {field('name', 'Student name *')}
-            {field('email', 'Parent email *')}
-            {field('level', 'Level / class')}
-            {field('day', 'Day')}
-          </div>
+          {headers.length > 0 && (
+            <>
+              <p className="text-sm font-semibold text-gray-700 mb-2">Match columns ({rows.length} rows)</p>
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                {field('name', 'Student name *')}
+                {field('email', 'Parent email *')}
+                {field('level', 'Level / class')}
+              </div>
 
-          {map.name && map.email && (() => {
-            const validCount = rows.filter(r => isValidEmail(r[map.email])).length
-            const missingCount = rows.length - validCount
-            return (
-              <>
-                <div className="flex items-center gap-4 mb-2 text-sm">
-                  <span className="text-green-700 font-medium">✓ {validCount} with a valid parent email</span>
-                  {missingCount > 0 && <span className="text-amber-700 font-medium">⚠ {missingCount} need checking</span>}
-                </div>
-                <p className="text-xs text-gray-500 mb-2">
-                  Review the parent email for each student below before importing. Rows marked ⚠ will be imported without an email, so you can add it later.
-                </p>
-                <div className="overflow-y-auto max-h-72 border border-gray-100 rounded-lg mb-4">
-                  <table className="text-sm border-collapse w-full">
-                    <thead className="sticky top-0 bg-gray-50">
-                      <tr className="text-left text-gray-500">
-                        <th className="px-3 py-2">Student</th>
-                        <th className="px-3 py-2">Parent email</th>
-                        <th className="px-3 py-2 text-right">OK?</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((r, i) => {
-                        const email = (r[map.email] || '').trim()
-                        const ok = isValidEmail(email)
-                        return (
-                          <tr key={i} className="border-t border-gray-100">
-                            <td className="px-3 py-1.5 text-gray-900">{r[map.name]}</td>
-                            <td className={`px-3 py-1.5 ${ok ? 'text-gray-900' : 'text-amber-700'}`}>{email || '(none)'}</td>
-                            <td className="px-3 py-1.5 text-right">{ok ? '✓' : '⚠'}</td>
+              {map.name && map.email && (() => {
+                const validCount = rows.filter(r => isValidEmail(r[map.email])).length
+                const missingCount = rows.length - validCount
+                return (
+                  <>
+                    <div className="flex items-center gap-4 mb-2 text-sm">
+                      <span className="text-green-700 font-medium">✓ {validCount} with a valid parent email</span>
+                      {missingCount > 0 && <span className="text-amber-700 font-medium">⚠ {missingCount} need checking</span>}
+                    </div>
+                    <div className="overflow-y-auto max-h-56 border border-gray-100 rounded-lg mb-4">
+                      <table className="text-sm w-full">
+                        <thead className="sticky top-0 bg-gray-50">
+                          <tr className="text-left text-gray-500">
+                            <th className="px-3 py-2">Student</th><th className="px-3 py-2">Parent email</th><th className="px-3 py-2 text-right">OK?</th>
                           </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )
-          })()}
+                        </thead>
+                        <tbody>
+                          {rows.map((r, i) => {
+                            const email = (r[map.email] || '').trim()
+                            const ok = isValidEmail(email)
+                            return (
+                              <tr key={i} className="border-t border-gray-100">
+                                <td className="px-3 py-1.5 text-gray-900">{r[map.name]}</td>
+                                <td className={`px-3 py-1.5 ${ok ? 'text-gray-900' : 'text-amber-700'}`}>{email || '(none)'}</td>
+                                <td className="px-3 py-1.5 text-right">{ok ? '✓' : '⚠'}</td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )
+              })()}
 
-          <button
-            onClick={doImport}
-            disabled={importing}
-            className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
-          >
-            {importing ? 'Importing...' : `Import ${rows.length} students`}
-          </button>
+              <button
+                onClick={doImport}
+                disabled={importing}
+                className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {importing ? 'Saving...' : `Set roster (${rows.length} students)`}
+              </button>
+            </>
+          )}
+
+          {result && <p className="text-sm mt-3 font-medium text-gray-700">{result}</p>}
         </>
       )}
-
-      {result && <p className="text-sm mt-3 font-medium text-gray-700">{result}</p>}
     </section>
   )
 }
