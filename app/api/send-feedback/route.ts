@@ -64,7 +64,8 @@ export async function POST(request: Request) {
   const childName = student.full_name || 'your child'
   const sessionTitle = student.sessions?.title || "today's session"
   const instructorName = profile?.full_name || ''
-  const formUrl = process.env.PARENT_FEEDBACK_FORM_URL
+  const appUrl = process.env.APP_URL || 'http://localhost:3000'
+  const rateUrl = `${appUrl}/rate?n=${encodeURIComponent(childName)}&se=${encodeURIComponent(sessionTitle)}`
 
   // Render the feedback inline in the email body
   const esc = (s: unknown) =>
@@ -108,6 +109,7 @@ export async function POST(request: Request) {
     row('Wants to learn more about', student.learn_more_about),
     row('What I learned today', student.what_learned_today),
     row('Instructor remarks', student.instructor_remarks),
+    row('Safeguarding', student.safeguarding),
   ].join('')
 
   const feedbackHtml = [
@@ -122,7 +124,7 @@ export async function POST(request: Request) {
 
   const links = [
     student.drive_link ? button(student.drive_link, 'View session photos', '#4f46e5') : '',
-    formUrl ? button(formUrl, 'Share your feedback', '#f59e0b') : '',
+    button(rateUrl, 'Rate your experience', '#f59e0b'),
   ].join('')
 
   const html = `
@@ -156,13 +158,21 @@ export async function POST(request: Request) {
     </div>
   </div>`
 
+  // TEST: while TEST_REDIRECT_EMAIL is set, deliver to that inbox instead of the
+  // real parent (Resend test mode only delivers to your own address).
+  const redirectTo = process.env.TEST_REDIRECT_EMAIL
+  const to = redirectTo || parentEmail
+  const testBanner = redirectTo
+    ? `<div style="background:#fef3c7;color:#92400e;padding:10px 16px;font-size:13px;font-family:-apple-system,Segoe UI,Roboto,sans-serif;">TEST MODE — this would normally be sent to <strong>${parentEmail}</strong></div>`
+    : ''
+
   const resend = new Resend(apiKey)
   const from = process.env.FEEDBACK_FROM_EMAIL || 'onboarding@resend.dev'
   const { error: sendError } = await resend.emails.send({
     from: `creative IQ <${from}>`,
-    to: parentEmail,
+    to,
     subject: `${childName}'s feedback — ${sessionTitle}`,
-    html,
+    html: testBanner + html,
   })
 
   if (sendError) {

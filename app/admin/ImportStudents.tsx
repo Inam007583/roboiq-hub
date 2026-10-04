@@ -28,6 +28,12 @@ export default function ImportStudents({
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState('')
 
+  // Manual add-one form
+  const [mName, setMName] = useState('')
+  const [mEmail, setMEmail] = useState('')
+  const [mLevel, setMLevel] = useState('')
+  const [addingOne, setAddingOne] = useState(false)
+
   async function loadRoster(vid: string) {
     if (!vid) { setRoster([]); return }
     const { data } = await supabase
@@ -136,6 +142,26 @@ export default function ImportStudents({
     onChanged()
   }
 
+  async function addOne() {
+    if (!venueId) { alert('Choose a venue first.'); return }
+    if (!mName.trim()) { alert('Enter the student\'s name.'); return }
+    const email = mEmail.trim()
+    if (email && !isValidEmail(email)) { alert('That parent email doesn\'t look valid.'); return }
+    setAddingOne(true)
+    const { error } = await supabase.from('rosters').insert({
+      venue_id: venueId,
+      full_name: mName.trim(),
+      parent_email: email || null,
+      level: mLevel.trim() || null,
+      active: true,
+    })
+    setAddingOne(false)
+    if (error) { alert(`Could not add student: ${error.message}`); return }
+    setMName(''); setMEmail(''); setMLevel('')
+    await loadRoster(venueId)
+    onChanged()
+  }
+
   const field = (key: FieldKey, label: string) => (
     <div>
       <label className="block text-xs font-semibold text-gray-700 mb-1">{label}</label>
@@ -192,6 +218,17 @@ export default function ImportStudents({
               </table>
             </div>
           )}
+
+          {/* Add one student manually (e.g. paid the company directly, not via Pebble) */}
+          <p className="text-sm font-semibold text-gray-700 mb-2">Add a student manually</p>
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto_auto] gap-2 items-center mb-5">
+            <input value={mName} onChange={e => setMName(e.target.value)} placeholder="Student name" className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900" />
+            <input value={mEmail} onChange={e => setMEmail(e.target.value)} placeholder="Parent email" className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900" />
+            <input value={mLevel} onChange={e => setMLevel(e.target.value)} placeholder="Level (optional)" className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900" />
+            <button onClick={addOne} disabled={addingOne} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap">
+              {addingOne ? 'Adding...' : 'Add'}
+            </button>
+          </div>
 
           {/* Upload to replace roster */}
           <label className="block text-xs font-semibold text-gray-700 mb-1">Upload Pebble file (.xlsx) to set / replace this roster</label>

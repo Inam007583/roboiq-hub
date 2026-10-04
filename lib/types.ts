@@ -58,6 +58,7 @@ export interface Student {
   learn_more_about: string | null
   what_learned_today: string | null
   instructor_remarks: string | null
+  safeguarding: string | null
   drive_link: string | null
   feedback_sent_at: string | null
 }

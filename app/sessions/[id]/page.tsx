@@ -17,8 +17,6 @@ export default function SessionDetail() {
   const [loading, setLoading] = useState(true)
   const [sendingId, setSendingId] = useState<string | null>(null)
   const [expandedStudent, setExpandedStudent] = useState<string | null>(null)
-  const [uploading, setUploading] = useState(false)
-  const [uploadedPhotos, setUploadedPhotos] = useState<string[]>([])
 
   const sessionId = params.id as string
 
@@ -51,77 +49,12 @@ export default function SessionDetail() {
         .order('full_name')
 
       setSession(sessionData)
-setStudents(studentsData || [])
-setDriveLink(sessionData?.photo_drive_link || '')
-
-// Load existing photos from storage
-const { data: photos } = await supabase.storage
-  .from('session-photos')
-  .list(sessionId)
-
-if (photos) {
-  const urls = photos.map(photo => {
-    const { data } = supabase.storage
-      .from('session-photos')
-      .getPublicUrl(`${sessionId}/${photo.name}`)
-    return data.publicUrl
-  })
-  setUploadedPhotos(urls)
-}
-
-setLoading(false)
+      setStudents(studentsData || [])
+      setDriveLink(sessionData?.photo_drive_link || '')
+      setLoading(false)
     }
     loadData()
   }, [sessionId])
-  async function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
-  const files = e.target.files
-  if (!files || files.length === 0) return
-
-  setUploading(true)
-
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i]
-    const fileName = `${Date.now()}-${file.name}`
-    const filePath = `${sessionId}/${fileName}`
-
-    const { error } = await supabase.storage
-      .from('session-photos')
-      .upload(filePath, file)
-
-    if (error) {
-      alert(`Upload failed: ${error.message}`)
-      continue
-    }
-
-    const { data } = supabase.storage
-      .from('session-photos')
-      .getPublicUrl(filePath)
-
-    setUploadedPhotos(prev => [...prev, data.publicUrl])
-  }
-
-  setUploading(false)
-  e.target.value = ''
-}
-
-async function handleDeletePhoto(photoUrl: string) {
-  if (!confirm('Delete this photo?')) return
-
-  const urlParts = photoUrl.split('/session-photos/')
-  if (urlParts.length < 2) return
-  const filePath = urlParts[1]
-
-  const { error } = await supabase.storage
-    .from('session-photos')
-    .remove([filePath])
-
-  if (error) {
-    alert(`Delete failed: ${error.message}`)
-    return
-  }
-
-  setUploadedPhotos(prev => prev.filter(p => p !== photoUrl))
-}
 
   function updateStudent(studentId: string, field: string, value: StudentFieldValue) {
     setStudents(students.map(s =>
@@ -159,6 +92,7 @@ async function handleDeletePhoto(photoUrl: string) {
         learn_more_about: student.learn_more_about,
         what_learned_today: student.what_learned_today,
         instructor_remarks: student.instructor_remarks,
+        safeguarding: student.safeguarding,
         drive_link: student.drive_link,
       })
       .eq('id', student.id)
@@ -248,57 +182,16 @@ async function handleDeletePhoto(photoUrl: string) {
             </span>
           </div>
         </div>
-        {/* Photo Upload Section */}
-<div className="bg-white rounded-xl shadow-sm p-6 mb-6">
-  <div className="flex items-center justify-between mb-4">
-    <h2 className="text-lg font-semibold text-gray-900">
-      Session Photos ({uploadedPhotos.length})
-    </h2>
-    {!isCompleted && (
-      <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition">
-        {uploading ? 'Uploading...' : '+ Upload Photos'}
-        <input
-          type="file"
-          accept="image/*"
-          multiple
-          onChange={handlePhotoUpload}
-          disabled={uploading}
-          className="hidden"
-        />
-      </label>
-    )}
-  </div>
-
-  {uploadedPhotos.length === 0 && (
-    <p className="text-gray-400 text-sm text-center py-8">
-      No photos uploaded yet. Click &ldquo;Upload Photos&rdquo; to add session pictures.
-    </p>
-  )}
-
-  {uploadedPhotos.length > 0 && (
-    <div className="grid grid-cols-3 md:grid-cols-4 gap-3">
-      {uploadedPhotos.map((url, i) => (
-        <div key={i} className="relative group aspect-square">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={url}
-            alt={`Session photo ${i + 1}`}
-            className="w-full h-full object-cover rounded-lg border border-gray-200"
-          />
-          {!isCompleted && (
-            <button
-              onClick={() => handleDeletePhoto(url)}
-              className="absolute top-1 right-1 w-6 h-6 bg-red-600 text-white rounded-full text-xs opacity-0 group-hover:opacity-100 transition"
-              title="Delete photo"
-            >
-              ×
-            </button>
-          )}
+        {/* Photo Upload Section — coming soon */}
+        <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-gray-900">Session Photos</h2>
+            <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full">Coming soon</span>
+          </div>
+          <p className="text-gray-400 text-sm mt-2">
+            In-app photo uploads are on the way. For now, share photos using the Drive link below.
+          </p>
         </div>
-      ))}
-    </div>
-  )}
-</div>
 
         {/* Drive link for venues that require photos */}
         {requiresPhotos && (
@@ -451,6 +344,17 @@ function StudentFeedbackCard({
             <TextField label="Let's Learn More About" value={student.learn_more_about} onChange={(v: string) => onChange('learn_more_about', v)} disabled={isSent} placeholder="What to focus on next time..." />
             <TextField label="What Did I Learn Today?" value={student.what_learned_today} onChange={(v: string) => onChange('what_learned_today', v)} disabled={isSent} placeholder="Key takeaway from the session..." />
             <TextField label="Instructor Remarks" value={student.instructor_remarks} onChange={(v: string) => onChange('instructor_remarks', v)} disabled={isSent} placeholder="Personal note for the parent..." />
+          </div>
+
+          {/* Safeguarding — included in the parent's email */}
+          <div className="bg-amber-50 rounded-lg p-4 border border-amber-200">
+            <TextField
+              label="Safeguarding (shown to the parent)"
+              value={student.safeguarding}
+              onChange={(v: string) => onChange('safeguarding', v)}
+              disabled={isSent}
+              placeholder="Behaviour note for the parent, e.g. please encourage listening during instructions..."
+            />
           </div>
 
           {/* Per-student Drive link (photos) */}
