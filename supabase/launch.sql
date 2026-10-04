@@ -9,6 +9,25 @@ alter table public.students add column if not exists feedback_sent_at timestampt
 alter table public.students add column if not exists drive_link text;
 alter table public.students add column if not exists safeguarding text;
 alter table public.students alter column parent_email drop not null;
+
+-- Time Management fields are free text now. Drop any numeric CHECK
+-- constraints on those columns first, otherwise the type change fails
+-- with "operator does not exist: text >= integer".
+do $$
+declare r record;
+begin
+  for r in
+    select con.conname
+    from pg_constraint con
+    join pg_class rel on rel.oid = con.conrelid
+    join pg_namespace nsp on nsp.oid = rel.relnamespace
+    where nsp.nspname = 'public' and rel.relname = 'students' and con.contype = 'c'
+      and pg_get_constraintdef(con.oid) ~* 'time_(intro|build|play)_score'
+  loop
+    execute format('alter table public.students drop constraint %I', r.conname);
+  end loop;
+end $$;
+
 alter table public.students alter column time_intro_score type text using time_intro_score::text;
 alter table public.students alter column time_build_score type text using time_build_score::text;
 alter table public.students alter column time_play_score type text using time_play_score::text;
