@@ -168,9 +168,11 @@ export async function POST(request: Request) {
 
   const resend = new Resend(apiKey)
   const from = process.env.FEEDBACK_FROM_EMAIL || 'onboarding@resend.dev'
+  const replyTo = process.env.REPLY_TO_EMAIL
   const { error: sendError } = await resend.emails.send({
     from: `creative IQ <${from}>`,
     to,
+    ...(replyTo ? { replyTo } : {}),
     subject: `${childName}'s feedback — ${sessionTitle}`,
     html: testBanner + html,
   })
