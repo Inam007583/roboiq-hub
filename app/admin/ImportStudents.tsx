@@ -155,8 +155,27 @@ export default function ImportStudents({
       level: mLevel.trim() || null,
       active: true,
     })
+    if (error) { setAddingOne(false); alert(`Could not add student: ${error.message}`); return }
+
+    // Also add them to this venue's existing (not-completed) sessions, so you can
+    // write feedback for a mid-term joiner without recreating the session.
+    const { data: openSessions } = await supabase
+      .from('sessions')
+      .select('id')
+      .eq('venue_id', venueId)
+      .neq('status', 'completed')
+    if (openSessions && openSessions.length > 0) {
+      await supabase.from('students').insert(
+        openSessions.map(s => ({
+          session_id: s.id,
+          full_name: mName.trim(),
+          parent_email: email || null,
+          level: mLevel.trim() || null,
+        }))
+      )
+    }
+
     setAddingOne(false)
-    if (error) { alert(`Could not add student: ${error.message}`); return }
     setMName(''); setMEmail(''); setMLevel('')
     await loadRoster(venueId)
     onChanged()
