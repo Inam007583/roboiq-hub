@@ -42,6 +42,18 @@ returns boolean language sql security definer stable set search_path = public as
   );
 $$;
 
+-- Can the current user teach this session? (primary instructor, a co-instructor,
+-- or an admin). SECURITY DEFINER so it reads sessions/session_instructors without
+-- tripping their own RLS.
+create or replace function public.can_teach(sess_id uuid)
+returns boolean language sql security definer stable set search_path = public as $$
+  select public.is_admin()
+    or exists (select 1 from public.sessions s
+               where s.id = sess_id and s.instructor_id = auth.uid())
+    or exists (select 1 from public.session_instructors si
+               where si.session_id = sess_id and si.instructor_id = auth.uid());
+$$;
+
 -- 3. Enable RLS on every table ----------------------------------
 alter table public.profiles            enable row level security;
 alter table public.venues              enable row level security;
@@ -70,35 +82,25 @@ drop policy if exists venues_write on public.venues;
 create policy venues_write on public.venues
   for all using (public.is_admin()) with check (public.is_admin());
 
--- sessions: instructor sees own; admin sees all; admin manages; owner can update
+-- sessions: any assigned instructor (primary or co) sees/updates; admin sees all
 drop policy if exists sessions_select on public.sessions;
 create policy sessions_select on public.sessions
-  for select using (instructor_id = auth.uid() or public.is_admin());
+  for select using (public.can_teach(id));
 drop policy if exists sessions_insert on public.sessions;
 create policy sessions_insert on public.sessions
   for insert with check (public.is_admin());
 drop policy if exists sessions_update on public.sessions;
 create policy sessions_update on public.sessions
-  for update using (instructor_id = auth.uid() or public.is_admin())
-  with check (instructor_id = auth.uid() or public.is_admin());
+  for update using (public.can_teach(id)) with check (public.can_teach(id));
 drop policy if exists sessions_delete on public.sessions;
 create policy sessions_delete on public.sessions
   for delete using (public.is_admin());
 
--- students: readable/writable by the owning session's instructor, or an admin
+-- students: readable/writable by any instructor assigned to the session, or an admin
 drop policy if exists students_rw on public.students;
 create policy students_rw on public.students
-  for all using (
-    public.is_admin() or exists (
-      select 1 from public.sessions s
-      where s.id = students.session_id and s.instructor_id = auth.uid()
-    )
-  ) with check (
-    public.is_admin() or exists (
-      select 1 from public.sessions s
-      where s.id = students.session_id and s.instructor_id = auth.uid()
-    )
-  );
+  for all using (public.can_teach(session_id))
+  with check (public.can_teach(session_id));
 
 -- rosters & invites: admin only (signup trigger reads invites via definer)
 drop policy if exists rosters_admin on public.rosters;

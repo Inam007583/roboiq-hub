@@ -38,9 +38,9 @@ export default function Dashboard() {
 
       setProfile(profileData)
 
-      // Instructors see only the sessions assigned to them (their rota);
-      // admins see every session.
-      let query = supabase
+      // Row-Level Security decides what's visible: an instructor sees sessions
+      // they're the primary OR a co-instructor on; admins see every session.
+      const { data: sessionsData } = await supabase
         .from('sessions')
         .select(`
           *,
@@ -50,12 +50,6 @@ export default function Dashboard() {
           )
         `)
         .order('date', { ascending: true })
-
-      if (profileData?.role !== 'admin') {
-        query = query.eq('instructor_id', user.id)
-      }
-
-      const { data: sessionsData } = await query
 
       setSessions(sessionsData || [])
       setLoading(false)

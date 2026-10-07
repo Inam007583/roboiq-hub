@@ -41,7 +41,17 @@ export async function POST(request: Request) {
 
   const isOwner = student.sessions?.instructor_id === user.id
   const isAdmin = profile?.role === 'admin'
+  let isCoInstructor = false
   if (!isOwner && !isAdmin) {
+    const { data: co } = await supabase
+      .from('session_instructors')
+      .select('id')
+      .eq('session_id', student.session_id)
+      .eq('instructor_id', user.id)
+      .maybeSingle()
+    isCoInstructor = !!co
+  }
+  if (!isOwner && !isAdmin && !isCoInstructor) {
     return NextResponse.json({ error: 'Not authorized for this session' }, { status: 403 })
   }
 

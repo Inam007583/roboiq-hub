@@ -35,6 +35,7 @@ export default function AdminPage() {
   const [sTime, setSTime] = useState('')
   const [sVenue, setSVenue] = useState('')
   const [sInstructor, setSInstructor] = useState('')
+  const [sCoInstructors, setSCoInstructors] = useState<string[]>([])
   const [savingSession, setSavingSession] = useState(false)
 
   async function loadAll() {
@@ -147,6 +148,14 @@ export default function AdminPage() {
       return
     }
 
+    // Additional (co-)instructors who should also see this session
+    const extras = sCoInstructors.filter(id => id && id !== sInstructor)
+    if (extras.length > 0) {
+      await supabase.from('session_instructors').insert(
+        extras.map(id => ({ session_id: created.id, instructor_id: id }))
+      )
+    }
+
     // Auto-fill this session with the venue's roster students
     const { data: roster } = await supabase
       .from('rosters')
@@ -168,7 +177,7 @@ export default function AdminPage() {
     setSavingSession(false)
     const n = roster?.length ?? 0
     alert(n > 0 ? `Session added with ${n} students from the roster.` : 'Session added (no roster set for this venue yet).')
-    setSTitle(''); setSDate(''); setSTime(''); setSVenue(''); setSInstructor('')
+    setSTitle(''); setSDate(''); setSTime(''); setSVenue(''); setSInstructor(''); setSCoInstructors([])
     await loadAll()
   }
   async function deleteSession(id: string) {
@@ -334,6 +343,30 @@ export default function AdminPage() {
               </div>
             </div>
           </div>
+
+          {/* Additional instructors — all assigned instructors see this session */}
+          <div className="mb-3">
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Additional instructors (optional)</label>
+            <div className="flex flex-wrap gap-3">
+              {profiles.filter(p => p.id !== sInstructor).map(p => (
+                <label key={p.id} className="flex items-center gap-1.5 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 accent-indigo-600"
+                    checked={sCoInstructors.includes(p.id)}
+                    onChange={e => setSCoInstructors(prev =>
+                      e.target.checked ? [...prev, p.id] : prev.filter(id => id !== p.id)
+                    )}
+                  />
+                  {p.full_name || p.email}
+                </label>
+              ))}
+              {profiles.filter(p => p.id !== sInstructor).length === 0 && (
+                <span className="text-xs text-gray-400">No other instructors yet.</span>
+              )}
+            </div>
+          </div>
+
           <button onClick={addSession} disabled={savingSession} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 mb-5">
             {savingSession ? 'Adding...' : 'Add to rota'}
           </button>
