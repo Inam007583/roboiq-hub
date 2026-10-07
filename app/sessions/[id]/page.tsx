@@ -71,6 +71,14 @@ export default function SessionDetail() {
       alert(`No parent email on file for ${student.full_name || 'this student'}. Add one before sending.`)
       return
     }
+    if (!student.what_learned_today || !student.what_learned_today.trim()) {
+      alert('Please fill in "What did I learn today?" — it is required.')
+      return
+    }
+    if (!student.instructor_remarks || !student.instructor_remarks.trim()) {
+      alert('Please fill in "Instructor Remarks" — it is required.')
+      return
+    }
 
     setSendingId(student.id)
 
@@ -341,9 +349,10 @@ function StudentFeedbackCard({
 
           {/* Text fields */}
           <div className="bg-white rounded-lg p-4 border border-gray-100 space-y-3">
+            <TextField label="What Did I Learn Today? *" value={student.what_learned_today} onChange={(v: string) => onChange('what_learned_today', v)} disabled={isSent} placeholder="Key takeaway from the session..." />
+            <TextField label="Instructor Remarks *" value={student.instructor_remarks} onChange={(v: string) => onChange('instructor_remarks', v)} disabled={isSent} placeholder="Personal note for the parent..." />
             <TextField label="Let's Learn More About" value={student.learn_more_about} onChange={(v: string) => onChange('learn_more_about', v)} disabled={isSent} placeholder="What to focus on next time..." />
-            <TextField label="What Did I Learn Today?" value={student.what_learned_today} onChange={(v: string) => onChange('what_learned_today', v)} disabled={isSent} placeholder="Key takeaway from the session..." />
-            <TextField label="Instructor Remarks" value={student.instructor_remarks} onChange={(v: string) => onChange('instructor_remarks', v)} disabled={isSent} placeholder="Personal note for the parent..." />
+            <p className="text-xs text-gray-400">* required before sending</p>
           </div>
 
           {/* Safeguarding — included in the parent's email */}
