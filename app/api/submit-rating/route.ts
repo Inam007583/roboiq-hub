@@ -24,12 +24,13 @@ export async function POST(request: Request) {
   const esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating)
   const context = [body.childName, body.sessionTitle].filter(Boolean).join(' · ')
+  const appUrl = process.env.APP_URL || 'http://localhost:3000'
 
   const html = `
   <div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:600px;margin:0 auto;color:#111827;">
-    <div style="background:#4f46e5;color:#fff;padding:18px 24px;border-radius:12px 12px 0 0;">
-      <p style="margin:0;font-size:18px;font-weight:800;">creative <span style="color:#f59e0b;">IQ</span></p>
-      <p style="margin:4px 0 0;font-size:13px;opacity:.9;">New parent rating</p>
+    <div style="background:#ffffff;border:1px solid #eeeeee;border-bottom:3px solid #4d8f0f;border-radius:12px 12px 0 0;padding:22px 24px;text-align:center;">
+      <img src="${appUrl}/creative-iq-logo.png" alt="Creative IQ" width="130" style="width:130px;max-width:55%;height:auto;" />
+      <p style="margin:10px 0 0;color:#6b7280;font-size:12px;font-weight:700;letter-spacing:.08em;">NEW PARENT RATING</p>
     </div>
     <div style="border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px;padding:24px;">
       <p style="font-size:26px;margin:0;color:#f59e0b;letter-spacing:3px;">${stars}</p>

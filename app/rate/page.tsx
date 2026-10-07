@@ -7,9 +7,10 @@ export default function RatePage() {
   return (
     <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 to-purple-50 p-6">
       <div className="bg-white rounded-2xl shadow-lg w-full max-w-md overflow-hidden">
-        <div className="bg-indigo-600 px-6 py-5">
-          <p className="text-white text-xl font-extrabold">creative <span className="text-amber-400">IQ</span></p>
-          <p className="text-indigo-100 text-sm mt-1">Rate your experience</p>
+        <div className="bg-white px-6 py-6 text-center border-b-[3px] border-[#4d8f0f]">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/creative-iq-logo.png" alt="Creative IQ" className="mx-auto w-36 h-auto" />
+          <p className="text-gray-500 text-xs font-bold tracking-widest mt-2">RATE YOUR EXPERIENCE</p>
         </div>
         <Suspense fallback={<div className="p-6 text-gray-500">Loading…</div>}>
           <RateForm />

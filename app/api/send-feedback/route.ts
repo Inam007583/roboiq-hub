@@ -138,11 +138,11 @@ export async function POST(request: Request) {
   ].join('')
 
   const html = `
-  <div style="background:#efeafc;padding:24px 0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
-    <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;">
-      <div style="background:#4f46e5;padding:22px 28px;">
-        <p style="margin:0;color:#fff;font-size:22px;font-weight:800;letter-spacing:.02em;">creative <span style="color:#f59e0b;">IQ</span></p>
-        <p style="margin:4px 0 0;color:#e0e7ff;font-size:13px;">Session Feedback</p>
+  <div style="background:#ffffff;padding:24px 0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+    <div style="max-width:600px;margin:0 auto;background:#fff;border:1px solid #eeeeee;border-radius:16px;overflow:hidden;">
+      <div style="background:#ffffff;padding:26px 28px 18px;text-align:center;border-bottom:3px solid #4d8f0f;">
+        <img src="${appUrl}/creative-iq-logo.png" alt="Creative IQ" width="150" style="width:150px;max-width:62%;height:auto;" />
+        <p style="margin:12px 0 0;color:#6b7280;font-size:12px;font-weight:700;letter-spacing:.08em;">SESSION FEEDBACK</p>
       </div>
 
       <div style="padding:28px;">
