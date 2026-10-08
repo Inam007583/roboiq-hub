@@ -41,6 +41,15 @@ export default function AdminPage() {
   const [sCoInstructors, setSCoInstructors] = useState<string[]>([])
   const [savingSession, setSavingSession] = useState(false)
 
+  // Edit-session state
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [eTitle, setETitle] = useState('')
+  const [eDate, setEDate] = useState('')
+  const [eTime, setETime] = useState('')
+  const [eInstructor, setEInstructor] = useState('')
+  const [eCoInstructors, setECoInstructors] = useState<string[]>([])
+  const [savingEdit, setSavingEdit] = useState(false)
+
   async function loadAll(orgId?: string | null) {
     const oid = orgId !== undefined ? orgId : activeOrg?.id ?? null
     let pq = supabase.from('profiles').select('*').order('email')
@@ -214,6 +223,36 @@ export default function AdminPage() {
   async function deleteSession(id: string) {
     if (!confirm('Delete this session from the rota?')) return
     await supabase.from('sessions').delete().eq('id', id)
+    await loadAll()
+  }
+
+  async function startEdit(s: Session) {
+    setEditingId(s.id)
+    setETitle(s.title || '')
+    setEDate(s.date || '')
+    setETime(s.time || '')
+    setEInstructor(s.instructor_id || '')
+    const { data: co } = await supabase.from('session_instructors').select('instructor_id').eq('session_id', s.id)
+    setECoInstructors((co || []).map(c => c.instructor_id as string))
+  }
+  function cancelEdit() { setEditingId(null) }
+  async function saveEdit(id: string) {
+    if (!eTitle.trim() || !eDate || !eInstructor) { alert('Title, date and primary instructor are required.'); return }
+    setSavingEdit(true)
+    await supabase.from('sessions').update({
+      title: eTitle.trim(),
+      date: eDate,
+      time: eTime || null,
+      instructor_id: eInstructor,
+    }).eq('id', id)
+    // Sync co-instructors: clear then re-add (excluding the primary)
+    await supabase.from('session_instructors').delete().eq('session_id', id)
+    const extras = eCoInstructors.filter(x => x && x !== eInstructor)
+    if (extras.length > 0) {
+      await supabase.from('session_instructors').insert(extras.map(x => ({ session_id: id, instructor_id: x })))
+    }
+    setSavingEdit(false)
+    setEditingId(null)
     await loadAll()
   }
 
@@ -422,15 +461,49 @@ export default function AdminPage() {
 
           <div className="space-y-2">
             {sessions.map(s => (
-              <div key={s.id} className="flex items-center justify-between p-3 border border-gray-100 rounded-lg">
-                <div>
-                  <p className="font-medium text-gray-900">{s.title}</p>
-                  <p className="text-xs text-gray-500">
-                    {s.date}{s.time ? ` ${s.time}` : ''} · {s.venues?.name || '—'} · {instructorName(s.instructor_id)}
-                  </p>
+              editingId === s.id ? (
+                <div key={s.id} className="p-3 border border-indigo-200 bg-indigo-50/40 rounded-lg space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <input value={eTitle} onChange={e => setETitle(e.target.value)} placeholder="Title" className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900" />
+                    <select value={eInstructor} onChange={e => setEInstructor(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white">
+                      <option value="">— Primary instructor —</option>
+                      {profiles.map(p => <option key={p.id} value={p.id}>{p.full_name || p.email}</option>)}
+                    </select>
+                    <input type="date" value={eDate} onChange={e => setEDate(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900" />
+                    <input type="time" value={eTime} onChange={e => setETime(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-gray-700 mb-1">Additional instructors</p>
+                    <div className="flex flex-wrap gap-3">
+                      {profiles.filter(p => p.id !== eInstructor).map(p => (
+                        <label key={p.id} className="flex items-center gap-1.5 text-sm text-gray-700">
+                          <input type="checkbox" className="w-4 h-4 accent-indigo-600"
+                            checked={eCoInstructors.includes(p.id)}
+                            onChange={ev => setECoInstructors(prev => ev.target.checked ? [...prev, p.id] : prev.filter(x => x !== p.id))} />
+                          {p.full_name || p.email}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => saveEdit(s.id)} disabled={savingEdit} className="text-sm bg-indigo-600 text-white px-4 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50">{savingEdit ? 'Saving...' : 'Save'}</button>
+                    <button onClick={cancelEdit} className="text-sm border border-gray-300 text-gray-700 px-4 py-1.5 rounded-lg hover:bg-gray-50">Cancel</button>
+                  </div>
                 </div>
-                <button onClick={() => deleteSession(s.id)} className="text-sm border border-red-300 text-red-700 px-3 py-1.5 rounded-lg hover:bg-red-50">Delete</button>
-              </div>
+              ) : (
+                <div key={s.id} className="flex items-center justify-between p-3 border border-gray-100 rounded-lg">
+                  <div>
+                    <p className="font-medium text-gray-900">{s.title}</p>
+                    <p className="text-xs text-gray-500">
+                      {s.date}{s.time ? ` ${s.time}` : ''} · {s.venues?.name || '—'} · {instructorName(s.instructor_id)}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => startEdit(s)} className="text-sm border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-50">Edit</button>
+                    <button onClick={() => deleteSession(s.id)} className="text-sm border border-red-300 text-red-700 px-3 py-1.5 rounded-lg hover:bg-red-50">Delete</button>
+                  </div>
+                </div>
+              )
             ))}
             {sessions.length === 0 && <p className="text-sm text-gray-400">No sessions scheduled.</p>}
           </div>
