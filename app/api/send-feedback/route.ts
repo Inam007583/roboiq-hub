@@ -100,25 +100,25 @@ export async function POST(request: Request) {
     row('Date', student.sessions?.date),
     row('Day', student.day_number),
     student.is_repeat ? row('Repeat session', 'Yes') : '',
-    row('Lesson focus', student.lesson_focus),
+    row('Lesson Focus', student.lesson_focus),
   ].join('')
 
   const scoreRows = [
-    row('Understanding', student.understanding_score != null ? `${student.understanding_score} / 5` : ''),
-    row('Troubleshooting', student.troubleshooting_score),
-    row('Design', student.design_score),
+    row('Understanding of Instructions', student.understanding_score != null ? `${student.understanding_score} / 5` : ''),
+    row('Troubleshooting & Debugging', student.troubleshooting_score),
+    row('Design & Creativity', student.design_score),
   ].join('')
 
   const timeRows = [
-    row('Intro', student.time_intro_score),
-    row('Build', student.time_build_score),
-    row('Play', student.time_play_score),
+    row('Intro & Pre-built', student.time_intro_score),
+    row('Build Time', student.time_build_score),
+    row('Playtime & Activity', student.time_play_score),
   ].join('')
 
   const notesRows = [
-    row('What I learned today', student.what_learned_today),
-    row('Instructor remarks', student.instructor_remarks),
-    row('Wants to learn more about', student.learn_more_about),
+    row('What Did I Learn Today?', student.what_learned_today),
+    row('Instructor Remarks', student.instructor_remarks),
+    row("Let's Learn More About", student.learn_more_about),
     row('Safeguarding', student.safeguarding),
   ].join('')
 
