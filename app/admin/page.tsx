@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
-import type { Profile, VenueRow, Session } from '@/lib/types'
+import type { Profile, VenueRow, Session, Organization } from '@/lib/types'
 import Link from 'next/link'
 import ImportStudents from './ImportStudents'
 
@@ -13,6 +13,9 @@ export default function AdminPage() {
 
   const [loading, setLoading] = useState(true)
   const [meId, setMeId] = useState<string | null>(null)
+  const [isSuper, setIsSuper] = useState(false)
+  const [orgs, setOrgs] = useState<Organization[]>([])
+  const [activeOrg, setActiveOrg] = useState<Organization | null>(null)
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [venues, setVenues] = useState<VenueRow[]>([])
   const [sessions, setSessions] = useState<Session[]>([])
@@ -38,15 +41,25 @@ export default function AdminPage() {
   const [sCoInstructors, setSCoInstructors] = useState<string[]>([])
   const [savingSession, setSavingSession] = useState(false)
 
-  async function loadAll() {
-    const [{ data: profs }, { data: vens }, { data: sess }] = await Promise.all([
-      supabase.from('profiles').select('*').order('email'),
-      supabase.from('venues').select('*').order('name'),
-      supabase.from('sessions').select('*, venues ( name )').order('date', { ascending: true }),
-    ])
+  async function loadAll(orgId?: string | null) {
+    const oid = orgId !== undefined ? orgId : activeOrg?.id ?? null
+    let pq = supabase.from('profiles').select('*').order('email')
+    let vq = supabase.from('venues').select('*').order('name')
+    let sq = supabase.from('sessions').select('*, venues ( name )').order('date', { ascending: true })
+    if (oid) {
+      pq = pq.eq('org_id', oid)
+      vq = vq.eq('org_id', oid)
+      sq = sq.eq('org_id', oid)
+    }
+    const [{ data: profs }, { data: vens }, { data: sess }] = await Promise.all([pq, vq, sq])
     setProfiles(profs || [])
     setVenues(vens || [])
     setSessions(sess || [])
+  }
+
+  function switchOrg(id: string) {
+    try { localStorage.setItem('activeOrgId', id) } catch {}
+    window.location.reload()
   }
 
   // Add an instructor by email (grants access). If they've already signed in,
@@ -61,7 +74,7 @@ export default function AdminPage() {
     } else {
       const { error } = await supabase
         .from('instructor_invites')
-        .upsert({ email, full_name: iName.trim() || null, role: iRole }, { onConflict: 'email' })
+        .upsert({ email, full_name: iName.trim() || null, role: iRole, org_id: activeOrg?.id ?? null }, { onConflict: 'email' })
       if (error) { setSavingInvite(false); alert(`Could not add instructor: ${error.message}`); return }
     }
     setSavingInvite(false)
@@ -79,7 +92,7 @@ export default function AdminPage() {
       }
       const { data: me } = await supabase
         .from('profiles')
-        .select('role')
+        .select('role, org_id, is_super')
         .eq('id', user.id)
         .single()
 
@@ -89,7 +102,23 @@ export default function AdminPage() {
       }
 
       setMeId(user.id)
-      await loadAll()
+      const sup = !!me.is_super
+      setIsSuper(sup)
+
+      // Resolve the active brand
+      const { data: orgList } = await supabase.from('organizations').select('*').order('name')
+      const allOrgs = orgList || []
+      setOrgs(allOrgs)
+      let activeId: string | null = me.org_id ?? null
+      if (sup) {
+        const stored = typeof window !== 'undefined' ? localStorage.getItem('activeOrgId') : null
+        activeId = stored && allOrgs.some(o => o.id === stored)
+          ? stored
+          : (allOrgs.find(o => o.slug === 'creative-iq')?.id ?? allOrgs[0]?.id ?? activeId)
+      }
+      setActiveOrg(allOrgs.find(o => o.id === activeId) ?? null)
+
+      await loadAll(activeId)
       setLoading(false)
     }
     init()
@@ -114,7 +143,7 @@ export default function AdminPage() {
       address: vAddress.trim() || null,
       requires_photos: vPhotos,
       active: true,
-      brand: 'creative_iq',
+      org_id: activeOrg?.id ?? null,
     })
     setSavingVenue(false)
     if (error) { alert(`Could not add venue: ${error.message}`); return }
@@ -140,6 +169,7 @@ export default function AdminPage() {
       venue_id: sVenue,
       instructor_id: sInstructor,
       status: 'upcoming',
+      org_id: activeOrg?.id ?? null,
     }).select('id').single()
 
     if (error || !created) {
@@ -170,6 +200,7 @@ export default function AdminPage() {
           full_name: r.full_name,
           parent_email: r.parent_email,
           level: r.level,
+          org_id: activeOrg?.id ?? null,
         }))
       )
     }
@@ -200,9 +231,27 @@ export default function AdminPage() {
   return (
     <main className="min-h-screen bg-gradient-to-br from-indigo-50 to-purple-50 p-6">
       <div className="max-w-4xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-3xl font-bold text-indigo-900">Admin</h1>
-          <Link href="/dashboard" className="text-sm text-gray-600 hover:text-gray-900">← Dashboard</Link>
+        <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            {activeOrg?.logo_path && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={activeOrg.logo_path} alt={activeOrg.name} className="h-9 w-auto" />
+            )}
+            <h1 className="text-2xl font-bold text-gray-900">Admin</h1>
+          </div>
+          <div className="flex items-center gap-3">
+            {isSuper && orgs.length > 1 && (
+              <select
+                value={activeOrg?.id ?? ''}
+                onChange={e => switchOrg(e.target.value)}
+                className="text-sm border border-gray-300 rounded-lg px-2 py-1.5 bg-white text-gray-800"
+                title="Switch brand"
+              >
+                {orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </select>
+            )}
+            <Link href="/dashboard" className="text-sm text-gray-600 hover:text-gray-900">← Dashboard</Link>
+          </div>
         </div>
 
         {/* ===== Instructors ===== */}
@@ -389,7 +438,7 @@ export default function AdminPage() {
 
         {/* ===== Class rosters ===== */}
         <div className="mt-6">
-          <ImportStudents venues={venues} onChanged={loadAll} />
+          <ImportStudents venues={venues} orgId={activeOrg?.id ?? null} onChanged={() => loadAll()} />
         </div>
       </div>
     </main>

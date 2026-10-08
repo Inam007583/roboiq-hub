@@ -25,7 +25,7 @@ export async function POST(request: Request) {
 
   const { data: student, error: fetchError } = await supabase
     .from('students')
-    .select(`*, sessions ( title, date, instructor_id, venues ( name ) )`)
+    .select(`*, sessions ( title, date, instructor_id, org_id, venues ( name ) )`)
     .eq('id', studentId)
     .single()
 
@@ -71,10 +71,32 @@ export async function POST(request: Request) {
     )
   }
 
+  // Brand (organization) config for this session — governs sender, logo, colours, footer
+  const orgId = (student.sessions as { org_id?: string } | null)?.org_id
+  const { data: org } = orgId
+    ? await supabase.from('organizations').select('*').eq('id', orgId).single()
+    : { data: null }
+
+  const brandName = org?.name || 'Creative IQ'
+  const brandFrom = org?.email_from || process.env.FEEDBACK_FROM_EMAIL
+  const brandReplyTo = org?.email_reply_to || process.env.REPLY_TO_EMAIL
+  const brandAccent = org?.accent_color || '#4d8f0f'
+  const brandContactEmail = org?.contact_email || 'info@creative-iq.co.uk'
+  const brandContactPhone = org?.contact_phone || '07361 594569'
+  const brandLogoPath = org?.logo_path || '/creative-iq-logo.png'
+
+  if (!brandFrom) {
+    return NextResponse.json(
+      { error: `${brandName}'s email isn't set up yet — verify its domain in Resend first.` },
+      { status: 422 }
+    )
+  }
+
   const childName = student.full_name || 'your child'
   const sessionTitle = student.sessions?.title || "today's session"
   const instructorName = profile?.full_name || ''
   const appUrl = process.env.APP_URL || 'http://localhost:3000'
+  const brandLogo = `${appUrl}${brandLogoPath}`
   const rateUrl = `${appUrl}/rate?n=${encodeURIComponent(childName)}&se=${encodeURIComponent(sessionTitle)}`
 
   // Render the feedback inline in the email body
@@ -92,7 +114,7 @@ export async function POST(request: Request) {
   const section = (heading: string, rows: string) =>
     !rows
       ? ''
-      : `<p style="margin:22px 0 4px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#4f46e5;">${esc(heading)}</p>
+      : `<p style="margin:22px 0 4px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:${brandAccent};">${esc(heading)}</p>
          <table style="width:100%;border-collapse:collapse;">${rows}</table>`
 
   const lessonRows = [
@@ -140,8 +162,8 @@ export async function POST(request: Request) {
   const html = `
   <div style="background:#ffffff;padding:24px 0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
     <div style="max-width:600px;margin:0 auto;background:#fff;border:1px solid #eeeeee;border-radius:16px;overflow:hidden;">
-      <div style="background:#ffffff;padding:26px 28px 18px;text-align:center;border-bottom:3px solid #4d8f0f;">
-        <img src="${appUrl}/creative-iq-logo.png" alt="Creative IQ" width="150" style="width:150px;max-width:62%;height:auto;" />
+      <div style="background:#ffffff;padding:26px 28px 18px;text-align:center;border-bottom:3px solid ${brandAccent};">
+        <img src="${brandLogo}" alt="${esc(brandName)}" width="150" style="width:150px;max-width:62%;height:auto;" />
         <p style="margin:12px 0 0;color:#6b7280;font-size:12px;font-weight:700;letter-spacing:.08em;">SESSION FEEDBACK</p>
       </div>
 
@@ -161,8 +183,8 @@ export async function POST(request: Request) {
       <div style="background:#f9fafb;padding:18px 28px;border-top:1px solid #eee;">
         <p style="margin:0;font-size:13px;color:#6b7280;line-height:1.6;">
           For any queries, email us at
-          <a href="mailto:info@creative-iq.co.uk" style="color:#4f46e5;">info@creative-iq.co.uk</a>
-          or call <strong>07361 594569</strong>.
+          <a href="mailto:${brandContactEmail}" style="color:${brandAccent};">${esc(brandContactEmail)}</a>
+          or call <strong>${esc(brandContactPhone)}</strong>.
         </p>
       </div>
     </div>
@@ -177,12 +199,10 @@ export async function POST(request: Request) {
     : ''
 
   const resend = new Resend(apiKey)
-  const from = process.env.FEEDBACK_FROM_EMAIL || 'onboarding@resend.dev'
-  const replyTo = process.env.REPLY_TO_EMAIL
   const { error: sendError } = await resend.emails.send({
-    from: `creative IQ <${from}>`,
+    from: `${brandName} <${brandFrom}>`,
     to,
-    ...(replyTo ? { replyTo } : {}),
+    ...(brandReplyTo ? { replyTo: brandReplyTo } : {}),
     subject: `${childName}'s feedback — ${sessionTitle}`,
     html: testBanner + html,
   })

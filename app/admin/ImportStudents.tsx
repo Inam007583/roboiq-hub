@@ -14,9 +14,11 @@ const isValidEmail = (v: string) => EMAIL_RE.test((v || '').trim())
 
 export default function ImportStudents({
   venues,
+  orgId,
   onChanged,
 }: {
   venues: VenueRow[]
+  orgId: string | null
   onChanged: () => void
 }) {
   const supabase = createClient()
@@ -113,6 +115,7 @@ export default function ImportStudents({
           parent_email: isValidEmail(email) ? email : null,
           level: map.level ? (r[map.level] || '').trim() || null : null,
           active: true,
+          org_id: orgId,
         }
       })
       .filter(s => s.full_name)
@@ -154,6 +157,7 @@ export default function ImportStudents({
       parent_email: email || null,
       level: mLevel.trim() || null,
       active: true,
+      org_id: orgId,
     })
     if (error) { setAddingOne(false); alert(`Could not add student: ${error.message}`); return }
 
@@ -171,6 +175,7 @@ export default function ImportStudents({
           full_name: mName.trim(),
           parent_email: email || null,
           level: mLevel.trim() || null,
+          org_id: orgId,
         }))
       )
     }

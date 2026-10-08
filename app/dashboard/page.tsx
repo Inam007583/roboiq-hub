@@ -3,11 +3,13 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
-import type { Profile, Session, SessionInstructor } from '@/lib/types'
+import type { Profile, Session, SessionInstructor, Organization } from '@/lib/types'
 import Link from 'next/link'
 
 export default function Dashboard() {
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [orgs, setOrgs] = useState<Organization[]>([])
+  const [activeOrg, setActiveOrg] = useState<Organization | null>(null)
   const [sessions, setSessions] = useState<Session[]>([])
   const [loading, setLoading] = useState(true)
   const router = useRouter()
@@ -16,46 +18,56 @@ export default function Dashboard() {
   useEffect(() => {
     async function loadData() {
       const { data: { user } } = await supabase.auth.getUser()
-
       if (!user) {
         router.push('/login')
         return
       }
 
-      // Load profile
       const { data: profileData } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', user.id)
         .single()
 
-      // Blocked (removed) accounts can't use the app
       if (profileData && profileData.active === false) {
         await supabase.auth.signOut()
         router.push('/login?error=' + encodeURIComponent('Your access has been removed. Please contact your admin.'))
         return
       }
-
       setProfile(profileData)
 
-      // Row-Level Security decides what's visible: an instructor sees sessions
-      // they're the primary OR a co-instructor on; admins see every session.
-      const { data: sessionsData } = await supabase
+      // Resolve the active brand
+      const { data: orgList } = await supabase.from('organizations').select('*').order('name')
+      const allOrgs = orgList || []
+      setOrgs(allOrgs)
+      const isSuper = !!profileData?.is_super
+      let activeId: string | null = profileData?.org_id ?? null
+      if (isSuper) {
+        const stored = typeof window !== 'undefined' ? localStorage.getItem('activeOrgId') : null
+        activeId = stored && allOrgs.some(o => o.id === stored)
+          ? stored
+          : (allOrgs.find(o => o.slug === 'creative-iq')?.id ?? allOrgs[0]?.id ?? activeId)
+      }
+      setActiveOrg(allOrgs.find(o => o.id === activeId) ?? null)
+
+      // Sessions for the active brand (RLS also restricts to what the user may see)
+      let q = supabase
         .from('sessions')
-        .select(`
-          *,
-          venues ( name, brand, requires_photos ),
-          session_instructors (
-            profiles ( id, full_name )
-          )
-        `)
+        .select(`*, venues ( name, brand, requires_photos ), session_instructors ( profiles ( id, full_name ) )`)
         .order('date', { ascending: true })
+      if (activeId) q = q.eq('org_id', activeId)
+      const { data: sessionsData } = await q
 
       setSessions(sessionsData || [])
       setLoading(false)
     }
     loadData()
   }, [])
+
+  function switchOrg(id: string) {
+    try { localStorage.setItem('activeOrgId', id) } catch {}
+    window.location.reload()
+  }
 
   async function handleLogout() {
     await supabase.auth.signOut()
@@ -70,51 +82,56 @@ export default function Dashboard() {
     )
   }
 
+  const isSuper = !!profile?.is_super
+
   return (
-    <main className="min-h-screen bg-gradient-to-br from-indigo-50 to-purple-50 p-8">
+    <main className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-8">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-indigo-900">
-              Creative IQ Hub
-            </h1>
-            <p className="text-gray-500">
-              Welcome, <strong>{profile?.full_name}</strong>
-              <span className="ml-2 px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-xs font-medium">
-                {profile?.role}
-              </span>
-            </p>
+        <div className="flex justify-between items-center mb-8 flex-wrap gap-4">
+          <div className="flex items-center gap-4">
+            {activeOrg?.logo_path && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={activeOrg.logo_path} alt={activeOrg.name} className="h-10 w-auto" />
+            )}
+            <div>
+              <p className="text-gray-500 text-sm">
+                Welcome, <strong>{profile?.full_name}</strong>
+                <span className="ml-2 px-2 py-0.5 bg-gray-200 text-gray-700 rounded-full text-xs font-medium">
+                  {profile?.role}
+                </span>
+              </p>
+            </div>
           </div>
           <div className="flex items-center gap-4">
-            {profile?.role === 'admin' && (
-              <Link href="/admin" className="text-sm font-medium text-indigo-600 hover:text-indigo-800">
-                Admin
-              </Link>
+            {isSuper && orgs.length > 1 && (
+              <select
+                value={activeOrg?.id ?? ''}
+                onChange={e => switchOrg(e.target.value)}
+                className="text-sm border border-gray-300 rounded-lg px-2 py-1.5 bg-white text-gray-800"
+                title="Switch brand"
+              >
+                {orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </select>
             )}
-            <button
-              onClick={handleLogout}
-              className="text-sm text-gray-600 hover:text-gray-900"
-            >
-              Sign out
-            </button>
+            {profile?.role === 'admin' && (
+              <Link href="/admin" className="text-sm font-medium text-indigo-600 hover:text-indigo-800">Admin</Link>
+            )}
+            <button onClick={handleLogout} className="text-sm text-gray-600 hover:text-gray-900">Sign out</button>
           </div>
         </div>
 
         {/* Sessions count */}
         <div className="bg-white rounded-xl shadow-sm p-4 mb-6">
           <p className="text-gray-600">
-            <strong className="text-indigo-900 text-lg">{sessions.length}</strong>
+            <strong className="text-gray-900 text-lg">{sessions.length}</strong>
             {' '}sessions {profile?.role === 'admin' ? 'in total' : 'assigned to you'}
           </p>
         </div>
 
-        {/* Sessions */}
         {sessions.length > 0 && (
           <div className="mb-8">
-            <h2 className="text-xl font-bold text-purple-900 mb-3">
-              Sessions
-            </h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-3">Sessions</h2>
             <div className="space-y-3">
               {sessions.map((session) => (
                 <SessionCard key={session.id} session={session} />

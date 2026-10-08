@@ -4,6 +4,20 @@ export interface Profile {
   email: string | null
   role: string | null
   active: boolean | null
+  org_id: string | null
+  is_super: boolean | null
+}
+
+export interface Organization {
+  id: string
+  slug: string
+  name: string
+  logo_path: string | null
+  accent_color: string | null
+  email_from: string | null
+  email_reply_to: string | null
+  contact_email: string | null
+  contact_phone: string | null
 }
 
 export interface Venue {
