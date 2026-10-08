@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Creative IQ Hub",
+  title: "Robo IQ Hub",
   description: "Session feedback, simplified.",
 };
 

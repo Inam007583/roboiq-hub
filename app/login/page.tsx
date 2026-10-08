@@ -10,7 +10,7 @@ export default function LoginPage() {
       <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md">
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-indigo-900 mb-2">
-            Creative IQ Hub
+            Robo IQ Hub
           </h1>
           <p className="text-gray-500">Sessions, simplified.</p>
         </div>
