@@ -164,6 +164,7 @@ export default function AdminPage() {
       requires_photos: vPhotos,
       active: true,
       org_id: activeOrg?.id ?? null,
+      brand: activeOrg?.slug === 'robothink' ? 'robothink' : 'creative_iq',
     })
     setSavingVenue(false)
     if (error) { alert(`Could not add venue: ${error.message}`); return }
