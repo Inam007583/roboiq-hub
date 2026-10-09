@@ -7,6 +7,8 @@ import type { Profile, VenueRow, Session, Organization } from '@/lib/types'
 import Link from 'next/link'
 import ImportStudents from './ImportStudents'
 
+interface Invite { email: string; full_name: string | null; role: string | null }
+
 export default function AdminPage() {
   const supabase = createClient()
   const router = useRouter()
@@ -16,6 +18,7 @@ export default function AdminPage() {
   const [isSuper, setIsSuper] = useState(false)
   const [orgs, setOrgs] = useState<Organization[]>([])
   const [activeOrg, setActiveOrg] = useState<Organization | null>(null)
+  const [invites, setInvites] = useState<Invite[]>([])
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [venues, setVenues] = useState<VenueRow[]>([])
   const [sessions, setSessions] = useState<Session[]>([])
@@ -55,15 +58,23 @@ export default function AdminPage() {
     let pq = supabase.from('profiles').select('*').order('email')
     let vq = supabase.from('venues').select('*').order('name')
     let sq = supabase.from('sessions').select('*, venues ( name )').order('date', { ascending: true })
+    let iq = supabase.from('instructor_invites').select('*').order('email')
     if (oid) {
       pq = pq.eq('org_id', oid)
       vq = vq.eq('org_id', oid)
       sq = sq.eq('org_id', oid)
+      iq = iq.eq('org_id', oid)
     }
-    const [{ data: profs }, { data: vens }, { data: sess }] = await Promise.all([pq, vq, sq])
+    const [{ data: profs }, { data: vens }, { data: sess }, { data: invs }] = await Promise.all([pq, vq, sq, iq])
     setProfiles(profs || [])
     setVenues(vens || [])
     setSessions(sess || [])
+    setInvites(invs || [])
+  }
+
+  async function removeInvite(email: string) {
+    await supabase.from('instructor_invites').delete().eq('email', email)
+    await loadAll()
   }
 
   function switchOrg(id: string) {
@@ -322,6 +333,23 @@ export default function AdminPage() {
               {savingInvite ? 'Adding...' : 'Add instructor'}
             </button>
           </div>
+
+          {invites.length > 0 && (
+            <>
+              <p className="text-sm font-semibold text-indigo-700 mb-2">Invited — awaiting first sign-in ({invites.length})</p>
+              <div className="space-y-2 mb-5">
+                {invites.map(inv => (
+                  <div key={inv.email} className="flex items-center justify-between p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
+                    <div>
+                      <p className="font-medium text-gray-900">{inv.full_name || inv.email}</p>
+                      <p className="text-xs text-gray-500">{inv.email} · {inv.role}</p>
+                    </div>
+                    <button onClick={() => removeInvite(inv.email)} className="text-sm border border-red-300 text-red-700 px-3 py-1.5 rounded-lg hover:bg-red-50">Remove</button>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
 
           <div className="space-y-2">
             {profiles.map(p => {
