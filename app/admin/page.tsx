@@ -55,12 +55,24 @@ export default function AdminPage() {
 
   async function loadAll(orgId?: string | null) {
     const oid = orgId !== undefined ? orgId : activeOrg?.id ?? null
+
+    // Instructor pool = everyone who is a MEMBER of the active brand.
+    // (An instructor can be a member of several brands at once.)
+    let memberIds: string[] | null = null
+    if (oid) {
+      const { data: mem } = await supabase.from('memberships').select('user_id').eq('org_id', oid)
+      memberIds = (mem || []).map(m => m.user_id)
+    }
+
     let pq = supabase.from('profiles').select('*').order('email')
+    if (memberIds) {
+      // guard against an empty IN() list (matches nothing cleanly)
+      pq = pq.in('id', memberIds.length ? memberIds : ['00000000-0000-0000-0000-000000000000'])
+    }
     let vq = supabase.from('venues').select('*').order('name')
     let sq = supabase.from('sessions').select('*, venues ( name )').order('date', { ascending: true })
     let iq = supabase.from('instructor_invites').select('*').order('email')
     if (oid) {
-      pq = pq.eq('org_id', oid)
       vq = vq.eq('org_id', oid)
       sq = sq.eq('org_id', oid)
       iq = iq.eq('org_id', oid)
@@ -73,7 +85,10 @@ export default function AdminPage() {
   }
 
   async function removeInvite(email: string) {
-    await supabase.from('instructor_invites').delete().eq('email', email)
+    // only this brand's pending invite — they may be invited to the other brand too
+    let q = supabase.from('instructor_invites').delete().ilike('email', email)
+    if (activeOrg?.id) q = q.eq('org_id', activeOrg.id)
+    await q
     await loadAll()
   }
 
@@ -82,24 +97,49 @@ export default function AdminPage() {
     window.location.reload()
   }
 
-  // Add an instructor by email (grants access). If they've already signed in,
-  // just re-activate their existing account; otherwise add them to the allowlist.
+  // Add an instructor by email to the ACTIVE brand. Works even if they already
+  // work for the other brand — they simply gain a membership here too.
   async function addInstructor() {
     const email = iEmail.trim().toLowerCase()
     if (!email) { alert('Enter the instructor\'s email.'); return }
+    if (!activeOrg?.id) { alert('Pick a brand first.'); return }
     setSavingInvite(true)
-    const existing = profiles.find(p => (p.email || '').toLowerCase() === email)
-    if (existing) {
-      await supabase.from('profiles').update({ active: true, role: iRole }).eq('id', existing.id)
-    } else {
+
+    // Look up ANY existing profile with this email (across all brands —
+    // admins can read every profile, so this finds cross-brand people).
+    const { data: prof } = await supabase
+      .from('profiles').select('id').ilike('email', email).maybeSingle()
+
+    if (prof) {
+      // They've signed in before — reactivate + add a membership for this brand.
+      await supabase.from('profiles').update({ active: true }).eq('id', prof.id)
       const { error } = await supabase
-        .from('instructor_invites')
-        .upsert({ email, full_name: iName.trim() || null, role: iRole, org_id: activeOrg?.id ?? null }, { onConflict: 'email' })
+        .from('memberships')
+        .upsert({ user_id: prof.id, org_id: activeOrg.id, role: iRole }, { onConflict: 'user_id,org_id' })
       if (error) { setSavingInvite(false); alert(`Could not add instructor: ${error.message}`); return }
+    } else {
+      // Not signed in yet — pending invite for THIS brand only (keeps any
+      // invite they may already have for the other brand).
+      const { data: existingInv } = await supabase
+        .from('instructor_invites').select('email')
+        .ilike('email', email).eq('org_id', activeOrg.id).maybeSingle()
+      if (existingInv) {
+        await supabase.from('instructor_invites')
+          .update({ full_name: iName.trim() || null, role: iRole })
+          .ilike('email', email).eq('org_id', activeOrg.id)
+      } else {
+        const { error } = await supabase
+          .from('instructor_invites')
+          .insert({ email, full_name: iName.trim() || null, role: iRole, org_id: activeOrg.id })
+        if (error) { setSavingInvite(false); alert(`Could not add instructor: ${error.message}`); return }
+      }
     }
+
     setSavingInvite(false)
     setIEmail(''); setIName(''); setIRole('instructor')
-    alert(existing ? 'Access restored for this instructor.' : 'Instructor added — they can sign in with Google now.')
+    alert(prof
+      ? `Added to ${activeOrg.name}.`
+      : `Invited to ${activeOrg.name} — they can sign in with Google now.`)
     await loadAll()
   }
 
@@ -145,12 +185,34 @@ export default function AdminPage() {
   }, [])
 
   // ----- instructor actions -----
-  async function setActive(id: string, active: boolean) {
-    await supabase.from('profiles').update({ active }).eq('id', id)
+  // Remove from the ACTIVE brand only. They keep access to any other brand.
+  async function removeFromBrand(id: string, label: string) {
+    if (!activeOrg?.id) return
+    if (!confirm(`Remove ${label} from ${activeOrg.name}? They'll keep access to any other brand they're in.`)) return
+    await supabase.from('memberships').delete().eq('user_id', id).eq('org_id', activeOrg.id)
+
+    // Repoint their home brand / sign-in if needed.
+    const { data: remaining } = await supabase.from('memberships').select('org_id').eq('user_id', id)
+    const orgs = remaining || []
+    const { data: prof } = await supabase.from('profiles').select('org_id').eq('id', id).single()
+    const stillHasHome = prof?.org_id && orgs.some(o => o.org_id === prof.org_id)
+    await supabase.from('profiles').update({
+      active: orgs.length > 0,                    // no brands left ⇒ fully revoke sign-in
+      org_id: orgs.length === 0 ? null : (stillHasHome ? prof!.org_id : orgs[0].org_id),
+    }).eq('id', id)
+    await loadAll()
+  }
+  async function restoreToBrand(id: string) {
+    if (!activeOrg?.id) return
+    await supabase.from('memberships')
+      .upsert({ user_id: id, org_id: activeOrg.id, role: 'instructor' }, { onConflict: 'user_id,org_id' })
+    await supabase.from('profiles').update({ active: true }).eq('id', id)
     await loadAll()
   }
   async function setRole(id: string, role: string) {
     await supabase.from('profiles').update({ role }).eq('id', id)
+    // keep their membership role for this brand in sync
+    if (activeOrg?.id) await supabase.from('memberships').update({ role }).eq('user_id', id).eq('org_id', activeOrg.id)
     await loadAll()
   }
 
@@ -364,7 +426,7 @@ export default function AdminPage() {
                   {p.id === meId ? (
                     <span className="text-xs text-gray-400 font-medium">You</span>
                   ) : removed ? (
-                    <button onClick={() => setActive(p.id, true)} className="text-sm bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700">Restore</button>
+                    <button onClick={() => restoreToBrand(p.id)} className="text-sm bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700">Restore</button>
                   ) : (
                     <div className="flex gap-2">
                       <button
@@ -374,7 +436,7 @@ export default function AdminPage() {
                         {p.role === 'admin' ? 'Make instructor' : 'Make admin'}
                       </button>
                       <button
-                        onClick={() => { if (confirm(`Remove ${p.full_name || p.email}'s access?`)) setActive(p.id, false) }}
+                        onClick={() => removeFromBrand(p.id, p.full_name || p.email || 'this instructor')}
                         className="text-sm border border-red-300 text-red-700 px-3 py-1.5 rounded-lg hover:bg-red-50"
                       >
                         Remove

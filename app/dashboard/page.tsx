@@ -39,16 +39,28 @@ export default function Dashboard() {
       // Resolve the active brand
       const { data: orgList } = await supabase.from('organizations').select('*').order('name')
       const allOrgs = orgList || []
-      setOrgs(allOrgs)
       const isSuper = !!profileData?.is_super
-      let activeId: string | null = profileData?.org_id ?? null
-      if (isSuper) {
+
+      // Which brands can this person see? Super-users see all; everyone else
+      // sees the brands they're a member of (an instructor can work for both).
+      const { data: memRows } = await supabase
+        .from('memberships').select('org_id').eq('user_id', user.id)
+      const memIds = (memRows || []).map(m => m.org_id)
+      const myOrgs = isSuper
+        ? allOrgs
+        : allOrgs.filter(o => memIds.includes(o.id) || o.id === profileData?.org_id)
+      setOrgs(myOrgs)
+
+      let activeId: string | null = profileData?.org_id ?? myOrgs[0]?.id ?? null
+      if (isSuper || myOrgs.length > 1) {
         const stored = typeof window !== 'undefined' ? localStorage.getItem('activeOrgId') : null
-        activeId = stored && allOrgs.some(o => o.id === stored)
+        activeId = stored && myOrgs.some(o => o.id === stored)
           ? stored
-          : (allOrgs.find(o => o.slug === 'creative-iq')?.id ?? allOrgs[0]?.id ?? activeId)
+          : (activeId && myOrgs.some(o => o.id === activeId)
+              ? activeId
+              : (myOrgs.find(o => o.slug === 'creative-iq')?.id ?? myOrgs[0]?.id ?? activeId))
       }
-      setActiveOrg(allOrgs.find(o => o.id === activeId) ?? null)
+      setActiveOrg(myOrgs.find(o => o.id === activeId) ?? null)
 
       // Sessions for the active brand (RLS also restricts to what the user may see)
       let q = supabase
@@ -82,8 +94,6 @@ export default function Dashboard() {
     )
   }
 
-  const isSuper = !!profile?.is_super
-
   return (
     <main className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-8">
       <div className="max-w-4xl mx-auto">
@@ -104,7 +114,7 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="flex items-center gap-4">
-            {isSuper && orgs.length > 1 && (
+            {orgs.length > 1 && (
               <select
                 value={activeOrg?.id ?? ''}
                 onChange={e => switchOrg(e.target.value)}
