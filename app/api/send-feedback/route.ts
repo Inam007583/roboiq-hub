@@ -97,7 +97,7 @@ export async function POST(request: Request) {
   const instructorName = profile?.full_name || ''
   const appUrl = process.env.APP_URL || 'http://localhost:3000'
   const brandLogo = `${appUrl}${brandLogoPath}`
-  const rateUrl = `${appUrl}/rate?n=${encodeURIComponent(childName)}&se=${encodeURIComponent(sessionTitle)}`
+  const rateUrl = `${appUrl}/rate?n=${encodeURIComponent(childName)}&se=${encodeURIComponent(sessionTitle)}&b=${encodeURIComponent(org?.slug || 'creative-iq')}`
 
   // Render the feedback inline in the email body
   const esc = (s: unknown) =>
