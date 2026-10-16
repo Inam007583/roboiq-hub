@@ -53,6 +53,12 @@ export default function AdminPage() {
   const [eCoInstructors, setECoInstructors] = useState<string[]>([])
   const [savingEdit, setSavingEdit] = useState(false)
 
+  // Pupils on the session being edited
+  const [eStudents, setEStudents] = useState<{ id: string; full_name: string; parent_email: string | null; level: string | null }[]>([])
+  const [nsName, setNsName] = useState('')
+  const [nsEmail, setNsEmail] = useState('')
+  const [nsLevel, setNsLevel] = useState('')
+
   async function loadAll(orgId?: string | null) {
     const oid = orgId !== undefined ? orgId : activeOrg?.id ?? null
 
@@ -306,10 +312,41 @@ export default function AdminPage() {
     setEDate(s.date || '')
     setETime(s.time || '')
     setEInstructor(s.instructor_id || '')
+    setNsName(''); setNsEmail(''); setNsLevel('')
     const { data: co } = await supabase.from('session_instructors').select('instructor_id').eq('session_id', s.id)
     setECoInstructors((co || []).map(c => c.instructor_id as string))
+    await loadSessionStudents(s.id)
   }
-  function cancelEdit() { setEditingId(null) }
+  function cancelEdit() { setEditingId(null); setEStudents([]) }
+
+  // ----- pupils on a session (rota) -----
+  async function loadSessionStudents(sessionId: string) {
+    const { data } = await supabase
+      .from('students')
+      .select('id, full_name, parent_email, level')
+      .eq('session_id', sessionId)
+      .order('full_name')
+    setEStudents(data || [])
+  }
+  async function addStudentToSession(sessionId: string) {
+    const name = nsName.trim()
+    if (!name) { alert('Enter the pupil\'s name.'); return }
+    const { error } = await supabase.from('students').insert({
+      session_id: sessionId,
+      full_name: name,
+      parent_email: nsEmail.trim() || null,
+      level: nsLevel.trim() || null,
+      org_id: activeOrg?.id ?? null,
+    })
+    if (error) { alert(`Could not add pupil: ${error.message}`); return }
+    setNsName(''); setNsEmail(''); setNsLevel('')
+    await loadSessionStudents(sessionId)
+  }
+  async function deleteStudentFromSession(studentId: string, sessionId: string) {
+    if (!confirm('Remove this pupil from the session?')) return
+    await supabase.from('students').delete().eq('id', studentId)
+    await loadSessionStudents(sessionId)
+  }
   async function saveEdit(id: string) {
     if (!eTitle.trim() || !eDate || !eInstructor) { alert('Title, date and primary instructor are required.'); return }
     setSavingEdit(true)
@@ -576,6 +613,30 @@ export default function AdminPage() {
                       ))}
                     </div>
                   </div>
+                  {/* Pupils on this session */}
+                  <div className="border-t border-indigo-200 pt-3">
+                    <p className="text-xs font-semibold text-gray-700 mb-2">Pupils ({eStudents.length})</p>
+                    <div className="space-y-1.5 mb-3">
+                      {eStudents.map(st => (
+                        <div key={st.id} className="flex items-center justify-between bg-white border border-gray-200 rounded-lg px-3 py-1.5">
+                          <div className="min-w-0">
+                            <span className="text-sm text-gray-900">{st.full_name}</span>
+                            {st.level ? <span className="text-xs text-gray-400 ml-2">{st.level}</span> : null}
+                            {st.parent_email ? <span className="text-xs text-gray-400 ml-2 truncate">· {st.parent_email}</span> : <span className="text-xs text-amber-600 ml-2">· no parent email</span>}
+                          </div>
+                          <button onClick={() => deleteStudentFromSession(st.id, s.id)} className="text-xs text-red-600 hover:text-red-800 px-2 shrink-0" title="Remove pupil">✕</button>
+                        </div>
+                      ))}
+                      {eStudents.length === 0 && <p className="text-xs text-gray-400">No pupils on this session yet.</p>}
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <input value={nsName} onChange={e => setNsName(e.target.value)} placeholder="Pupil name" className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900" />
+                      <input value={nsEmail} onChange={e => setNsEmail(e.target.value)} placeholder="Parent email" className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900" />
+                      <input value={nsLevel} onChange={e => setNsLevel(e.target.value)} placeholder="Level (optional)" className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900" />
+                    </div>
+                    <button onClick={() => addStudentToSession(s.id)} className="mt-2 text-sm border border-indigo-300 text-indigo-700 px-3 py-1.5 rounded-lg hover:bg-indigo-50">+ Add pupil</button>
+                  </div>
+
                   <div className="flex gap-2">
                     <button onClick={() => saveEdit(s.id)} disabled={savingEdit} className="text-sm bg-indigo-600 text-white px-4 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50">{savingEdit ? 'Saving...' : 'Save'}</button>
                     <button onClick={cancelEdit} className="text-sm border border-gray-300 text-gray-700 px-4 py-1.5 rounded-lg hover:bg-gray-50">Cancel</button>
