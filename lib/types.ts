@@ -74,6 +74,7 @@ export interface Student {
   instructor_remarks: string | null
   safeguarding: string | null
   drive_link: string | null
+  attended_on: string | null
   feedback_sent_at: string | null
 }
 

@@ -119,7 +119,7 @@ export async function POST(request: Request) {
 
   const lessonRows = [
     row('Level', student.level),
-    row('Date', student.sessions?.date),
+    row('Date', student.attended_on || student.sessions?.date),
     row('Day', student.day_number),
     student.is_repeat ? row('Repeat session', 'Yes') : '',
     row('Lesson Focus', student.lesson_focus),

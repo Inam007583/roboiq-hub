@@ -102,6 +102,7 @@ export default function SessionDetail() {
         instructor_remarks: student.instructor_remarks,
         safeguarding: student.safeguarding,
         drive_link: student.drive_link,
+        attended_on: student.attended_on || null,
       })
       .eq('id', student.id)
 
@@ -233,6 +234,8 @@ export default function SessionDetail() {
               student={student}
               isExpanded={expandedStudent === student.id}
               sending={sendingId === student.id}
+              showAttendedDate={session.venues?.brand === 'robothink'}
+              sessionDate={session.date}
               onToggle={() => setExpandedStudent(expandedStudent === student.id ? null : student.id)}
               onChange={(field: string, value: StudentFieldValue) => updateStudent(student.id, field, value)}
               onSubmit={() => handleSubmitStudent(student)}
@@ -255,6 +258,8 @@ function StudentFeedbackCard({
   student,
   isExpanded,
   sending,
+  showAttendedDate,
+  sessionDate,
   onToggle,
   onChange,
   onSubmit,
@@ -262,6 +267,8 @@ function StudentFeedbackCard({
   student: Student
   isExpanded: boolean
   sending: boolean
+  showAttendedDate: boolean
+  sessionDate: string | null
   onToggle: () => void
   onChange: (field: string, value: StudentFieldValue) => void
   onSubmit: () => void
@@ -301,6 +308,26 @@ function StudentFeedbackCard({
       {/* Expanded feedback form */}
       {isExpanded && (
         <div className="border-t border-gray-100 p-5 bg-gray-50/40 space-y-5">
+
+          {/* Date attended — only for flexible-day brands (e.g. RoboThink).
+              Blank ⇒ the parent email uses the class/session date. */}
+          {showAttendedDate && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <label className="block text-xs font-semibold text-amber-800 mb-1">
+                Date attended (if different from the class day)
+              </label>
+              <input
+                type="date"
+                value={student.attended_on || ''}
+                onChange={(e) => onChange('attended_on', e.target.value)}
+                disabled={isSent}
+                className="px-3 py-2 border border-amber-300 rounded-lg text-sm text-gray-900 bg-white disabled:opacity-60"
+              />
+              <p className="text-xs text-amber-700 mt-1">
+                Leave blank to use the class date{sessionDate ? ` (${sessionDate})` : ''}.
+              </p>
+            </div>
+          )}
 
           {/* Header fields */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
