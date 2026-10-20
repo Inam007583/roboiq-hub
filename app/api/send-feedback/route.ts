@@ -138,7 +138,7 @@ export async function POST(request: Request) {
   ].join('')
 
   const notesRows = [
-    row('What Did I Learn Today?', student.what_learned_today),
+    row('What Did We Learn Today?', student.what_learned_today),
     row('Instructor Remarks', student.instructor_remarks),
     row("Let's Learn More About", student.learn_more_about),
     row('Safeguarding', student.safeguarding),
