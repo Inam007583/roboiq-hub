@@ -103,19 +103,29 @@ export async function POST(request: Request) {
   const esc = (s: unknown) =>
     String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
+  // Short key/value pairs (Lesson, Scores, Time): label column is given a fixed
+  // share and allowed to wrap, so long labels never push the table off-screen.
   const row = (label: string, value: unknown) =>
     value == null || value === ''
       ? ''
       : `<tr>
-          <td style="padding:7px 14px 7px 0;font-size:13px;color:#6b7280;vertical-align:top;white-space:nowrap;">${esc(label)}</td>
-          <td style="padding:7px 0;font-size:14px;color:#111827;line-height:1.5;">${esc(value)}</td>
+          <td style="padding:7px 12px 7px 0;font-size:13px;color:#6b7280;vertical-align:top;width:42%;word-break:break-word;">${esc(label)}</td>
+          <td style="padding:7px 0;font-size:14px;color:#111827;line-height:1.5;vertical-align:top;word-break:break-word;">${esc(value)}</td>
         </tr>`
 
   const section = (heading: string, rows: string) =>
     !rows
       ? ''
       : `<p style="margin:22px 0 4px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:${brandAccent};">${esc(heading)}</p>
-         <table style="width:100%;border-collapse:collapse;">${rows}</table>`
+         <table style="width:100%;border-collapse:collapse;table-layout:fixed;">${rows}</table>`
+
+  // Long free-text notes: stacked (label on its own line, value full width below)
+  // so paragraphs never get crammed into a narrow column on phones.
+  const noteRow = (label: string, value: unknown) =>
+    value == null || value === ''
+      ? ''
+      : `<p style="margin:14px 0 2px;font-size:13px;color:#6b7280;">${esc(label)}</p>
+         <p style="margin:0;font-size:14px;color:#111827;line-height:1.55;word-break:break-word;">${esc(value)}</p>`
 
   const lessonRows = [
     row('Level', student.level),
@@ -138,17 +148,21 @@ export async function POST(request: Request) {
   ].join('')
 
   const notesRows = [
-    row('What Did We Learn Today?', student.what_learned_today),
-    row('Instructor Remarks', student.instructor_remarks),
-    row("Let's Learn More About", student.learn_more_about),
-    row('Safeguarding', student.safeguarding),
+    noteRow('What Did We Learn Today?', student.what_learned_today),
+    noteRow('Instructor Remarks', student.instructor_remarks),
+    noteRow("Let's Learn More About", student.learn_more_about),
+    noteRow('Safeguarding', student.safeguarding),
   ].join('')
+
+  const notesSection = notesRows
+    ? `<p style="margin:22px 0 2px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:${brandAccent};">Notes</p>${notesRows}`
+    : ''
 
   const feedbackHtml = [
     section('Lesson', lessonRows),
     section('Scores', scoreRows),
     section('Time management', timeRows),
-    section('Notes', notesRows),
+    notesSection,
   ].join('')
 
   const button = (href: string, label: string, bg: string) =>
@@ -160,14 +174,14 @@ export async function POST(request: Request) {
   ].join('')
 
   const html = `
-  <div style="background:#ffffff;padding:24px 0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
-    <div style="max-width:600px;margin:0 auto;background:#fff;border:1px solid #eeeeee;border-radius:16px;overflow:hidden;">
-      <div style="background:#ffffff;padding:26px 28px 18px;text-align:center;border-bottom:3px solid ${brandAccent};">
+  <div style="background:#ffffff;padding:24px 16px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+    <div style="width:100%;max-width:600px;margin:0 auto;background:#fff;border:1px solid #eeeeee;border-radius:16px;overflow:hidden;">
+      <div style="background:#ffffff;padding:26px 24px 18px;text-align:center;border-bottom:3px solid ${brandAccent};">
         <img src="${brandLogo}" alt="${esc(brandName)}" width="150" style="width:150px;max-width:62%;height:auto;" />
         <p style="margin:12px 0 0;color:#6b7280;font-size:12px;font-weight:700;letter-spacing:.08em;">SESSION FEEDBACK</p>
       </div>
 
-      <div style="padding:28px;">
+      <div style="padding:24px 22px;">
         <p style="margin:0 0 14px;font-size:15px;color:#111827;line-height:1.6;">
           Hi,<br><br>
           Thank you for attending our session today! Here is <strong>${esc(childName)}</strong>'s
@@ -180,7 +194,7 @@ export async function POST(request: Request) {
         ${instructorName ? `<p style="margin:20px 0 0;font-size:14px;color:#374151;">Warm regards,<br><strong>${instructorName}</strong></p>` : ''}
       </div>
 
-      <div style="background:#f9fafb;padding:18px 28px;border-top:1px solid #eee;">
+      <div style="background:#f9fafb;padding:18px 22px;border-top:1px solid #eee;">
         <p style="margin:0;font-size:13px;color:#6b7280;line-height:1.6;">
           For any queries, email us at
           <a href="mailto:${brandContactEmail}" style="color:${brandAccent};">${esc(brandContactEmail)}</a>
