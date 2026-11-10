@@ -54,10 +54,12 @@ export default function AdminPage() {
   const [savingEdit, setSavingEdit] = useState(false)
 
   // Pupils on the session being edited
-  const [eStudents, setEStudents] = useState<{ id: string; full_name: string; parent_email: string | null; level: string | null }[]>([])
+  const [eStudents, setEStudents] = useState<{ id: string; full_name: string; parent_email: string | null; parent_email_2: string | null; level: string | null }[]>([])
   const [nsName, setNsName] = useState('')
   const [nsEmail, setNsEmail] = useState('')
+  const [nsEmail2, setNsEmail2] = useState('')
   const [nsLevel, setNsLevel] = useState('')
+  const [renewing, setRenewing] = useState(false)
 
   async function loadAll(orgId?: string | null) {
     const oid = orgId !== undefined ? orgId : activeOrg?.id ?? null
@@ -278,7 +280,7 @@ export default function AdminPage() {
     // Auto-fill this session with the venue's roster students
     const { data: roster } = await supabase
       .from('rosters')
-      .select('full_name, parent_email, level')
+      .select('full_name, parent_email, parent_email_2, level')
       .eq('venue_id', sVenue)
       .eq('active', true)
 
@@ -288,6 +290,7 @@ export default function AdminPage() {
           session_id: created.id,
           full_name: r.full_name,
           parent_email: r.parent_email,
+          parent_email_2: r.parent_email_2,
           level: r.level,
           org_id: activeOrg?.id ?? null,
         }))
@@ -304,6 +307,72 @@ export default function AdminPage() {
     if (!confirm('Delete this session from the rota?')) return
     await supabase.from('sessions').delete().eq('id', id)
     await loadAll()
+  }
+
+  // Renew: copy the most recent week's sessions forward by 7 days with blank
+  // feedback, so you reuse the rota next week. This week stays as a record.
+  async function renewRota() {
+    if (!activeOrg?.id) return
+    const dated = sessions.filter(s => s.date)
+    if (dated.length === 0) { alert('No sessions to renew yet.'); return }
+
+    const addDays = (d: string, n: number) => {
+      const x = new Date(d + 'T00:00:00')
+      x.setDate(x.getDate() + n)
+      return x.toISOString().slice(0, 10)
+    }
+    // Most recent 7-day window (so repeat renews advance one week, not duplicate history)
+    const maxDate = dated.map(s => s.date as string).sort().slice(-1)[0]
+    const windowStart = addDays(maxDate, -6)
+    const toClone = dated.filter(s => (s.date as string) >= windowStart)
+    const newDate = addDays(maxDate, 7)
+
+    if (!confirm(`Create next week's rota?\n\nThis copies ${toClone.length} session(s) forward by 7 days (same venues, instructors and pupils) with blank feedback. The week of ${maxDate} stays as a record.`)) return
+
+    setRenewing(true)
+    let made = 0
+    for (const s of toClone) {
+      const { data: created, error } = await supabase.from('sessions').insert({
+        title: s.title,
+        time: s.time ?? null,
+        venue_id: s.venue_id,
+        instructor_id: s.instructor_id,
+        status: 'upcoming',
+        date: addDays(s.date as string, 7),
+        org_id: activeOrg.id,
+      }).select('id').single()
+      if (error || !created) continue
+      made++
+
+      // carry co-instructors
+      const { data: co } = await supabase.from('session_instructors').select('instructor_id').eq('session_id', s.id)
+      if (co && co.length > 0) {
+        await supabase.from('session_instructors').insert(
+          co.map(c => ({ session_id: created.id, instructor_id: c.instructor_id as string }))
+        )
+      }
+
+      // carry pupils (blank feedback)
+      const { data: pupils } = await supabase
+        .from('students')
+        .select('full_name, parent_email, parent_email_2, level')
+        .eq('session_id', s.id)
+      if (pupils && pupils.length > 0) {
+        await supabase.from('students').insert(
+          pupils.map(p => ({
+            session_id: created.id,
+            full_name: p.full_name,
+            parent_email: p.parent_email,
+            parent_email_2: p.parent_email_2,
+            level: p.level,
+            org_id: activeOrg.id,
+          }))
+        )
+      }
+    }
+    setRenewing(false)
+    await loadAll()
+    alert(`Next week's rota is ready — ${made} session(s) created for the week of ${newDate}.`)
   }
 
   async function startEdit(s: Session) {
@@ -323,7 +392,7 @@ export default function AdminPage() {
   async function loadSessionStudents(sessionId: string) {
     const { data } = await supabase
       .from('students')
-      .select('id, full_name, parent_email, level')
+      .select('id, full_name, parent_email, parent_email_2, level')
       .eq('session_id', sessionId)
       .order('full_name')
     setEStudents(data || [])
@@ -335,11 +404,12 @@ export default function AdminPage() {
       session_id: sessionId,
       full_name: name,
       parent_email: nsEmail.trim() || null,
+      parent_email_2: nsEmail2.trim() || null,
       level: nsLevel.trim() || null,
       org_id: activeOrg?.id ?? null,
     })
     if (error) { alert(`Could not add pupil: ${error.message}`); return }
-    setNsName(''); setNsEmail(''); setNsLevel('')
+    setNsName(''); setNsEmail(''); setNsEmail2(''); setNsLevel('')
     await loadSessionStudents(sessionId)
   }
   async function deleteStudentFromSession(studentId: string, sessionId: string) {
@@ -527,7 +597,19 @@ export default function AdminPage() {
 
         {/* ===== Weekly rota ===== */}
         <section className="bg-white rounded-xl shadow-sm p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Weekly rota</h2>
+          <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+            <h2 className="text-xl font-semibold text-gray-900">Weekly rota</h2>
+            {sessions.length > 0 && (
+              <button
+                onClick={renewRota}
+                disabled={renewing}
+                className="text-sm bg-emerald-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-emerald-700 disabled:opacity-50"
+                title="Copy this week's rota forward 7 days with blank feedback"
+              >
+                {renewing ? 'Renewing…' : '↻ Renew for next week'}
+              </button>
+            )}
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
             <div>
@@ -622,17 +704,20 @@ export default function AdminPage() {
                           <div className="min-w-0">
                             <span className="text-sm text-gray-900">{st.full_name}</span>
                             {st.level ? <span className="text-xs text-gray-400 ml-2">{st.level}</span> : null}
-                            {st.parent_email ? <span className="text-xs text-gray-400 ml-2 truncate">· {st.parent_email}</span> : <span className="text-xs text-amber-600 ml-2">· no parent email</span>}
+                            {st.parent_email || st.parent_email_2
+                              ? <span className="text-xs text-gray-400 ml-2 truncate">· {[st.parent_email, st.parent_email_2].filter(Boolean).join(', ')}</span>
+                              : <span className="text-xs text-amber-600 ml-2">· no parent email</span>}
                           </div>
                           <button onClick={() => deleteStudentFromSession(st.id, s.id)} className="text-xs text-red-600 hover:text-red-800 px-2 shrink-0" title="Remove pupil">✕</button>
                         </div>
                       ))}
                       {eStudents.length === 0 && <p className="text-xs text-gray-400">No pupils on this session yet.</p>}
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <input value={nsName} onChange={e => setNsName(e.target.value)} placeholder="Pupil name" className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900" />
-                      <input value={nsEmail} onChange={e => setNsEmail(e.target.value)} placeholder="Parent email" className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900" />
                       <input value={nsLevel} onChange={e => setNsLevel(e.target.value)} placeholder="Level (optional)" className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900" />
+                      <input value={nsEmail} onChange={e => setNsEmail(e.target.value)} placeholder="Parent email" className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900" />
+                      <input value={nsEmail2} onChange={e => setNsEmail2(e.target.value)} placeholder="Parent email 2 (optional)" className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900" />
                     </div>
                     <button onClick={() => addStudentToSession(s.id)} className="mt-2 text-sm border border-indigo-300 text-indigo-700 px-3 py-1.5 rounded-lg hover:bg-indigo-50">+ Add pupil</button>
                   </div>

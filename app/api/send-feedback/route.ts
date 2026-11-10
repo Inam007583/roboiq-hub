@@ -55,13 +55,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Not authorized for this session' }, { status: 403 })
   }
 
-  const parentEmail = (student.parent_email || '').trim()
-  if (!EMAIL_RE.test(parentEmail)) {
+  // Up to two parent emails — send to whichever are valid.
+  const parentEmails = [student.parent_email, student.parent_email_2]
+    .map((e: unknown) => String(e || '').trim())
+    .filter((e: string) => EMAIL_RE.test(e))
+  // de-dupe (case-insensitive) in case both fields hold the same address
+  const uniqueParents = [...new Map(parentEmails.map((e: string) => [e.toLowerCase(), e])).values()]
+  if (uniqueParents.length === 0) {
     return NextResponse.json(
       { error: 'This student has no valid parent email. Add one before sending.' },
       { status: 422 }
     )
   }
+  const parentEmail = uniqueParents[0]
 
   const apiKey = process.env.RESEND_API_KEY
   if (!apiKey) {
@@ -207,9 +213,9 @@ export async function POST(request: Request) {
   // TEST: while TEST_REDIRECT_EMAIL is set, deliver to that inbox instead of the
   // real parent (Resend test mode only delivers to your own address).
   const redirectTo = process.env.TEST_REDIRECT_EMAIL
-  const to = redirectTo || parentEmail
+  const to = redirectTo ? [redirectTo] : uniqueParents
   const testBanner = redirectTo
-    ? `<div style="background:#fef3c7;color:#92400e;padding:10px 16px;font-size:13px;font-family:-apple-system,Segoe UI,Roboto,sans-serif;">TEST MODE — this would normally be sent to <strong>${parentEmail}</strong></div>`
+    ? `<div style="background:#fef3c7;color:#92400e;padding:10px 16px;font-size:13px;font-family:-apple-system,Segoe UI,Roboto,sans-serif;">TEST MODE — this would normally be sent to <strong>${esc(uniqueParents.join(', '))}</strong></div>`
     : ''
 
   const resend = new Resend(apiKey)
@@ -231,5 +237,5 @@ export async function POST(request: Request) {
     .update({ feedback_sent_at: sentAt })
     .eq('id', studentId)
 
-  return NextResponse.json({ ok: true, sentAt })
+  return NextResponse.json({ ok: true, sentAt, recipients: uniqueParents })
 }

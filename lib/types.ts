@@ -75,6 +75,7 @@ export interface Student {
   safeguarding: string | null
   drive_link: string | null
   attended_on: string | null
+  parent_email_2: string | null
   feedback_sent_at: string | null
 }
 

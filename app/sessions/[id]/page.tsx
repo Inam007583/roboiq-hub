@@ -67,7 +67,7 @@ export default function SessionDetail() {
       alert('Photo link is required before sending feedback for this venue.')
       return
     }
-    if (!student.parent_email || !student.parent_email.trim()) {
+    if (!(student.parent_email || '').trim() && !(student.parent_email_2 || '').trim()) {
       alert(`No parent email on file for ${student.full_name || 'this student'}. Add one before sending.`)
       return
     }
@@ -103,6 +103,8 @@ export default function SessionDetail() {
         safeguarding: student.safeguarding,
         drive_link: student.drive_link,
         attended_on: student.attended_on || null,
+        parent_email: (student.parent_email || '').trim() || null,
+        parent_email_2: (student.parent_email_2 || '').trim() || null,
       })
       .eq('id', student.id)
 
@@ -147,7 +149,8 @@ export default function SessionDetail() {
       setSession(prev => (prev ? { ...prev, status: 'completed' } : prev))
     }
 
-    alert(`Feedback sent to ${student.parent_email}.`)
+    const recipients: string[] = result.recipients || [student.parent_email].filter(Boolean)
+    alert(`Feedback sent to ${recipients.join(' and ')}.`)
   }
 
   if (loading) {
@@ -309,6 +312,36 @@ function StudentFeedbackCard({
       {isExpanded && (
         <div className="border-t border-gray-100 p-5 bg-gray-50/40 space-y-5">
 
+          {/* Parent emails — feedback goes to both. Second is optional. */}
+          <div className="bg-white rounded-lg p-4 border border-gray-100">
+            <p className="text-sm font-bold text-gray-900 mb-2">Parent email(s)</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Parent 1</label>
+                <input
+                  type="email"
+                  value={student.parent_email || ''}
+                  onChange={(e) => onChange('parent_email', e.target.value)}
+                  disabled={isSent}
+                  placeholder="parent@example.com"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 disabled:opacity-60"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Parent 2 (optional)</label>
+                <input
+                  type="email"
+                  value={student.parent_email_2 || ''}
+                  onChange={(e) => onChange('parent_email_2', e.target.value)}
+                  disabled={isSent}
+                  placeholder="second parent@example.com"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 disabled:opacity-60"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-gray-400 mt-1">The feedback email is sent to both addresses.</p>
+          </div>
+
           {/* Date attended — only for flexible-day brands (e.g. RoboThink).
               Blank ⇒ the parent email uses the class/session date. */}
           {showAttendedDate && (
@@ -411,7 +444,7 @@ function StudentFeedbackCard({
           {isSent ? (
             <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
               <p className="text-green-800 text-sm font-medium">
-                Feedback sent to {student.parent_email} on {sentDate}
+                Feedback sent to {[student.parent_email, student.parent_email_2].filter(Boolean).join(' and ')} on {sentDate}
               </p>
             </div>
           ) : (

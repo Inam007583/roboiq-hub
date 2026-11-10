@@ -6,8 +6,8 @@ import { createClient } from '@/lib/supabase'
 import type { VenueRow } from '@/lib/types'
 
 type Row = Record<string, string>
-type FieldKey = 'name' | 'email' | 'level'
-interface RosterStudent { id: string; full_name: string | null; parent_email: string | null; level: string | null }
+type FieldKey = 'name' | 'email' | 'email2' | 'level'
+interface RosterStudent { id: string; full_name: string | null; parent_email: string | null; parent_email_2: string | null; level: string | null }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const isValidEmail = (v: string) => EMAIL_RE.test((v || '').trim())
@@ -26,13 +26,14 @@ export default function ImportStudents({
   const [roster, setRoster] = useState<RosterStudent[]>([])
   const [rows, setRows] = useState<Row[]>([])
   const [headers, setHeaders] = useState<string[]>([])
-  const [map, setMap] = useState<Record<FieldKey, string>>({ name: '', email: '', level: '' })
+  const [map, setMap] = useState<Record<FieldKey, string>>({ name: '', email: '', email2: '', level: '' })
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState('')
 
   // Manual add-one form
   const [mName, setMName] = useState('')
   const [mEmail, setMEmail] = useState('')
+  const [mEmail2, setMEmail2] = useState('')
   const [mLevel, setMLevel] = useState('')
   const [addingOne, setAddingOne] = useState(false)
 
@@ -40,7 +41,7 @@ export default function ImportStudents({
     if (!vid) { setRoster([]); return }
     const { data } = await supabase
       .from('rosters')
-      .select('id, full_name, parent_email, level')
+      .select('id, full_name, parent_email, parent_email_2, level')
       .eq('venue_id', vid)
       .order('full_name')
     setRoster(data || [])
@@ -95,9 +96,19 @@ export default function ImportStudents({
       }
       return ''
     }
+    const email1 = find('email', 'e-mail', 'parent email', 'guardian email')
+    // a second email column, if the export has one (don't reuse the first)
+    const email2 = (() => {
+      for (const k of ['second email', 'parent 2 email', 'parent email 2', 'guardian 2 email', 'email 2', 'parent 2', 'guardian 2']) {
+        const h = hdrs.find(x => x.toLowerCase().includes(k))
+        if (h && h !== email1) return h
+      }
+      return ''
+    })()
     setMap({
       name: find('child', 'pupil', 'student', 'name'),
-      email: find('email', 'e-mail', 'parent email', 'guardian email'),
+      email: email1,
+      email2,
       level: find('level', 'year', 'group', 'class'),
     })
   }
@@ -109,10 +120,12 @@ export default function ImportStudents({
     const payload = rows
       .map(r => {
         const email = (r[map.email] || '').trim()
+        const email2 = map.email2 ? (r[map.email2] || '').trim() : ''
         return {
           venue_id: venueId,
           full_name: (r[map.name] || '').trim() || null,
           parent_email: isValidEmail(email) ? email : null,
+          parent_email_2: isValidEmail(email2) ? email2 : null,
           level: map.level ? (r[map.level] || '').trim() || null : null,
           active: true,
           org_id: orgId,
@@ -134,7 +147,7 @@ export default function ImportStudents({
       `Roster set: ${data?.length ?? 0} students.` +
       (missing > 0 ? ` ⚠ ${missing} have no valid parent email — add it before sending feedback.` : '')
     )
-    setRows([]); setHeaders([]); setMap({ name: '', email: '', level: '' })
+    setRows([]); setHeaders([]); setMap({ name: '', email: '', email2: '', level: '' })
     await loadRoster(venueId)
     onChanged()
   }
@@ -149,12 +162,15 @@ export default function ImportStudents({
     if (!venueId) { alert('Choose a venue first.'); return }
     if (!mName.trim()) { alert('Enter the student\'s name.'); return }
     const email = mEmail.trim()
+    const email2 = mEmail2.trim()
     if (email && !isValidEmail(email)) { alert('That parent email doesn\'t look valid.'); return }
+    if (email2 && !isValidEmail(email2)) { alert('The second parent email doesn\'t look valid.'); return }
     setAddingOne(true)
     const { error } = await supabase.from('rosters').insert({
       venue_id: venueId,
       full_name: mName.trim(),
       parent_email: email || null,
+      parent_email_2: email2 || null,
       level: mLevel.trim() || null,
       active: true,
       org_id: orgId,
@@ -174,6 +190,7 @@ export default function ImportStudents({
           session_id: s.id,
           full_name: mName.trim(),
           parent_email: email || null,
+          parent_email_2: email2 || null,
           level: mLevel.trim() || null,
           org_id: orgId,
         }))
@@ -181,7 +198,7 @@ export default function ImportStudents({
     }
 
     setAddingOne(false)
-    setMName(''); setMEmail(''); setMLevel('')
+    setMName(''); setMEmail(''); setMEmail2(''); setMLevel('')
     await loadRoster(venueId)
     onChanged()
   }
@@ -232,7 +249,7 @@ export default function ImportStudents({
                   {roster.map(r => (
                     <tr key={r.id} className="border-t border-gray-100 first:border-t-0">
                       <td className="px-3 py-1.5 text-gray-900">{r.full_name}</td>
-                      <td className={`px-3 py-1.5 ${r.parent_email ? 'text-gray-600' : 'text-amber-700'}`}>{r.parent_email || '(no email)'}</td>
+                      <td className={`px-3 py-1.5 ${r.parent_email || r.parent_email_2 ? 'text-gray-600' : 'text-amber-700'}`}>{[r.parent_email, r.parent_email_2].filter(Boolean).join(', ') || '(no email)'}</td>
                       <td className="px-3 py-1.5 text-right">
                         <button onClick={() => removeStudent(r.id)} className="text-xs text-red-700 hover:underline">Remove</button>
                       </td>
@@ -245,14 +262,15 @@ export default function ImportStudents({
 
           {/* Add one student manually (e.g. paid the company directly, not via Pebble) */}
           <p className="text-sm font-semibold text-gray-700 mb-2">Add a student manually</p>
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto_auto] gap-2 items-center mb-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 items-center mb-2">
             <input value={mName} onChange={e => setMName(e.target.value)} placeholder="Student name" className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900" />
-            <input value={mEmail} onChange={e => setMEmail(e.target.value)} placeholder="Parent email" className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900" />
             <input value={mLevel} onChange={e => setMLevel(e.target.value)} placeholder="Level (optional)" className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900" />
-            <button onClick={addOne} disabled={addingOne} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap">
-              {addingOne ? 'Adding...' : 'Add'}
-            </button>
+            <input value={mEmail} onChange={e => setMEmail(e.target.value)} placeholder="Parent email" className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900" />
+            <input value={mEmail2} onChange={e => setMEmail2(e.target.value)} placeholder="Parent email 2 (optional)" className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900" />
           </div>
+          <button onClick={addOne} disabled={addingOne} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap mb-5">
+            {addingOne ? 'Adding...' : 'Add student'}
+          </button>
 
           {/* Upload to replace roster */}
           <label className="block text-xs font-semibold text-gray-700 mb-1">Upload Pebble file (.xlsx) to set / replace this roster</label>
@@ -266,9 +284,10 @@ export default function ImportStudents({
           {headers.length > 0 && (
             <>
               <p className="text-sm font-semibold text-gray-700 mb-2">Match columns ({rows.length} rows)</p>
-              <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
                 {field('name', 'Student name *')}
                 {field('email', 'Parent email *')}
+                {field('email2', 'Parent email 2')}
                 {field('level', 'Level / class')}
               </div>
 
