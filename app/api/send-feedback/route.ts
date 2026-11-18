@@ -174,9 +174,13 @@ export async function POST(request: Request) {
   const button = (href: string, label: string, bg: string) =>
     `<a href="${href}" style="display:inline-block;background:${bg};color:#fff;text-decoration:none;font-weight:700;font-size:15px;padding:12px 22px;border-radius:10px;margin:6px 8px 6px 0;">${label}</a>`
 
+  // Optional per-brand Google review link (shown only when set on the org)
+  const reviewUrl = (org?.review_url || '').trim()
+
   const links = [
     student.drive_link ? button(student.drive_link, 'View session photos', '#4f46e5') : '',
     button(rateUrl, 'Rate your experience', '#f59e0b'),
+    reviewUrl ? button(reviewUrl, '⭐ Leave us a Google review', '#4285F4') : '',
   ].join('')
 
   const html = `

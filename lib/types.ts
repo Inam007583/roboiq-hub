@@ -18,6 +18,7 @@ export interface Organization {
   email_reply_to: string | null
   contact_email: string | null
   contact_phone: string | null
+  review_url: string | null
 }
 
 export interface Venue {
