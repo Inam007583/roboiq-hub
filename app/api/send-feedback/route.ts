@@ -25,7 +25,7 @@ export async function POST(request: Request) {
 
   const { data: student, error: fetchError } = await supabase
     .from('students')
-    .select(`*, sessions ( title, date, instructor_id, org_id, venues ( name ) )`)
+    .select(`*, sessions ( title, date, instructor_id, org_id, venues ( name, review_url ) )`)
     .eq('id', studentId)
     .single()
 
@@ -174,14 +174,20 @@ export async function POST(request: Request) {
   const button = (href: string, label: string, bg: string) =>
     `<a href="${href}" style="display:inline-block;background:${bg};color:#fff;text-decoration:none;font-weight:700;font-size:15px;padding:12px 22px;border-radius:10px;margin:6px 8px 6px 0;">${label}</a>`
 
-  // Optional per-brand Google review link (shown only when set on the org)
-  const reviewUrl = (org?.review_url || '').trim()
+  // Google review link: the session's VENUE first (each venue has its own
+  // review page), falling back to an org-level link if one is set.
+  const sessionVenue = (student.sessions as { venues?: { review_url?: string } } | null)?.venues
+  const reviewUrl = (sessionVenue?.review_url || org?.review_url || '').trim()
 
+  // Stack the action buttons vertically, each on its own line.
   const links = [
     student.drive_link ? button(student.drive_link, 'View session photos', '#4f46e5') : '',
     button(rateUrl, 'Rate your experience', '#f59e0b'),
-    reviewUrl ? button(reviewUrl, '⭐ Leave us a Google review', '#4285F4') : '',
-  ].join('')
+    reviewUrl ? button(reviewUrl, '⭐ Write a Google review', '#4285F4') : '',
+  ]
+    .filter(Boolean)
+    .map(b => `<div style="margin:0 0 10px;">${b}</div>`)
+    .join('')
 
   const html = `
   <div style="background:#ffffff;padding:24px 16px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">

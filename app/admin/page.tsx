@@ -33,6 +33,8 @@ export default function AdminPage() {
   const [vName, setVName] = useState('')
   const [vAddress, setVAddress] = useState('')
   const [vPhotos, setVPhotos] = useState(false)
+  const [reviewDrafts, setReviewDrafts] = useState<Record<string, string>>({})
+  const [savingReview, setSavingReview] = useState<string | null>(null)
   const [savingVenue, setSavingVenue] = useState(false)
 
   // Session (rota) form
@@ -243,6 +245,15 @@ export default function AdminPage() {
   }
   async function toggleVenue(id: string, active: boolean) {
     await supabase.from('venues').update({ active }).eq('id', id)
+    await loadAll()
+  }
+  async function saveVenueReview(id: string, current: string | null) {
+    const url = (reviewDrafts[id] ?? current ?? '').trim()
+    setSavingReview(id)
+    const { error } = await supabase.from('venues').update({ review_url: url || null }).eq('id', id)
+    setSavingReview(null)
+    if (error) { alert(`Could not save review link: ${error.message}`); return }
+    setReviewDrafts(prev => { const next = { ...prev }; delete next[id]; return next })
     await loadAll()
   }
 
@@ -580,17 +591,38 @@ export default function AdminPage() {
           </div>
 
           <div className="space-y-2">
-            {venues.map(v => (
-              <div key={v.id} className="flex items-center justify-between p-3 border border-gray-100 rounded-lg">
-                <div>
-                  <p className={`font-medium ${v.active ? 'text-gray-900' : 'text-gray-400 line-through'}`}>{v.name}</p>
-                  <p className="text-xs text-gray-500">{v.address}{v.requires_photos ? ' · photos required' : ''}</p>
+            {venues.map(v => {
+              const draft = reviewDrafts[v.id] ?? (v.review_url || '')
+              const dirty = (reviewDrafts[v.id] ?? (v.review_url || '')) !== (v.review_url || '')
+              return (
+                <div key={v.id} className="p-3 border border-gray-100 rounded-lg space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className={`font-medium ${v.active ? 'text-gray-900' : 'text-gray-400 line-through'}`}>{v.name}</p>
+                      <p className="text-xs text-gray-500">{v.address}{v.requires_photos ? ' · photos required' : ''}</p>
+                    </div>
+                    <button onClick={() => toggleVenue(v.id, !v.active)} className="text-sm border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-50 shrink-0">
+                      {v.active ? 'Deactivate' : 'Reactivate'}
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={draft}
+                      onChange={e => setReviewDrafts(prev => ({ ...prev, [v.id]: e.target.value }))}
+                      placeholder="Google review link for this venue (optional)"
+                      className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900"
+                    />
+                    <button
+                      onClick={() => saveVenueReview(v.id, v.review_url)}
+                      disabled={savingReview === v.id || !dirty}
+                      className="text-sm border border-blue-300 text-blue-700 px-3 py-1.5 rounded-lg hover:bg-blue-50 disabled:opacity-40 shrink-0"
+                    >
+                      {savingReview === v.id ? 'Saving…' : 'Save link'}
+                    </button>
+                  </div>
                 </div>
-                <button onClick={() => toggleVenue(v.id, !v.active)} className="text-sm border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-50">
-                  {v.active ? 'Deactivate' : 'Reactivate'}
-                </button>
-              </div>
-            ))}
+              )
+            })}
             {venues.length === 0 && <p className="text-sm text-gray-400">No venues yet.</p>}
           </div>
         </section>

@@ -35,6 +35,7 @@ export interface VenueRow {
   brand: string | null
   requires_photos: boolean | null
   active: boolean | null
+  review_url: string | null
 }
 
 export interface SessionInstructor {
